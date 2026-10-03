@@ -1,0 +1,39 @@
+/* Design tokens — dark theme, Elysium accent (#7C5CFF), Inter. */
+:root {
+  --bg: #0a0912;
+  --bg-elev: #12101e;
+  --accent: #7c5cff;
+  --accent-2: #b48cff;
+  --accent-3: #5ad1ff;
+  --accent-glow: rgba(124, 92, 255, 0.45);
+  --accent-soft: rgba(124, 92, 255, 0.16);
+
+  --text: #f3f1ff;
+  --text-dim: rgba(243, 241, 255, 0.62);
+  --text-faint: rgba(243, 241, 255, 0.38);
+
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-strong: rgba(255, 255, 255, 0.09);
+  --glass-hover: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.11);
+  --glass-highlight: rgba(255, 255, 255, 0.22);
+  --glass-blur: 26px;
+
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --danger: #ff5c7a;
+
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-window: 14px;
+
+  --font: "Inter Variable", "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fast: 140ms;
+  --normal: 240ms;
+
+  color-scheme: dark;
+}

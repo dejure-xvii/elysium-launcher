@@ -1,0 +1,45 @@
+//! Build-time constants: game versions, endpoints, OAuth client.
+
+pub const LAUNCHER_NAME: &str = "ElysiumLauncher";
+pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub const MINECRAFT_VERSION: &str = "26.2";
+pub const FABRIC_LOADER_VERSION: &str = "0.19.5";
+pub const FABRIC_API_VERSION: &str = "0.161.0+26.2";
+pub const JAVA_MAJOR: u32 = 25;
+
+/// Version id of the merged Fabric profile inside `versions/`.
+pub fn fabric_version_id() -> String {
+    format!("fabric-loader-{FABRIC_LOADER_VERSION}-{MINECRAFT_VERSION}")
+}
+
+pub const VERSION_MANIFEST_URL: &str =
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+pub const RESOURCES_URL: &str = "https://resources.download.minecraft.net";
+pub const FABRIC_META_URL: &str = "https://meta.fabricmc.net/v2";
+pub const FABRIC_MAVEN_URL: &str = "https://maven.fabricmc.net";
+pub const ADOPTIUM_API_URL: &str = "https://api.adoptium.net/v3";
+
+/// Azure application (client) ID used for Microsoft sign-in.
+/// Register your own app (see README) and paste its ID here, or set the
+/// `ELYSIUM_MS_CLIENT_ID` environment variable at build time.
+pub const MS_CLIENT_ID: &str = match option_env!("ELYSIUM_MS_CLIENT_ID") {
+    Some(id) if !id.is_empty() => id,
+    _ => "00000000-0000-0000-0000-000000000000",
+};
+
+pub fn ms_client_configured() -> bool {
+    MS_CLIENT_ID != "00000000-0000-0000-0000-000000000000"
+}
+
+/// GitHub repository ("owner/repo") whose latest release provides the mod jar.
+/// Launcher updates are checked via the updater endpoint in `tauri.conf.json`;
+/// `LAUNCHER_REPO` is only used for release page links.
+pub const MOD_REPO: &str = "kirillyalovenko463-hash/elysium-visuals";
+pub const LAUNCHER_REPO: &str = "kirillyalovenko463-hash/elysium-launcher";
+
+/// File name of the mod inside `mods/`.
+pub const MOD_FILE_NAME: &str = "elysium-visuals.jar";
+pub const MOD_FILE_PREFIX: &str = "elysium-visuals";
+
+pub const USER_AGENT: &str = concat!("ElysiumLauncher/", env!("CARGO_PKG_VERSION"));
