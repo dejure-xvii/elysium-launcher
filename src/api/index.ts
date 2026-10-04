@@ -67,10 +67,28 @@ export interface ReleaseInfo {
 }
 
 export interface UpdateStatus {
-  launcherVersion: string;
   modVersion: string | null;
-  launcherUpdate: ReleaseInfo | null;
   modUpdate: ReleaseInfo | null;
+  modError: string | null;
+}
+
+export type UpdaterStage =
+  | "idle"
+  | "checking"
+  | "upToDate"
+  | "waitingForGame"
+  | "downloading"
+  | "installing"
+  | "error";
+
+/** Launcher auto-updater state (also sent as "launcher-update" events). */
+export interface UpdaterStatus {
+  stage: UpdaterStage;
+  currentVersion: string;
+  version: string | null;
+  message: string | null;
+  progress: number | null;
+  checkedAt: number | null;
 }
 
 export interface BuiltinMod {
@@ -119,7 +137,9 @@ export const api = {
 
   checkUpdates: () => invoke<UpdateStatus>("check_updates"),
   updateMod: () => invoke<string>("update_mod"),
-  updateLauncher: () => invoke<void>("update_launcher"),
+  launcherUpdateStatus: () => invoke<UpdaterStatus>("launcher_update_status"),
+  /** Checks now; an update found is installed automatically. Returns its version. */
+  checkLauncherUpdate: () => invoke<string | null>("check_launcher_update"),
 
   openGameDir: () => invoke<void>("open_game_dir"),
   openModsDir: () => invoke<void>("open_mods_dir"),
@@ -135,6 +155,8 @@ export const events = {
     listen<LogLine>("game-log", (e) => cb(e.payload)),
   onExit: (cb: (x: GameExit) => void): Promise<UnlistenFn> =>
     listen<GameExit>("game-exit", (e) => cb(e.payload)),
+  onLauncherUpdate: (cb: (s: UpdaterStatus) => void): Promise<UnlistenFn> =>
+    listen<UpdaterStatus>("launcher-update", (e) => cb(e.payload)),
   onAccountsChanged: (cb: () => void): Promise<UnlistenFn> =>
     listen("accounts-changed", () => cb()),
 };

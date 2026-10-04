@@ -4,6 +4,7 @@ mod download;
 mod error;
 mod fabric;
 mod launch;
+mod launcher_update;
 mod mods;
 mod paths;
 mod settings;
@@ -75,8 +76,10 @@ pub fn run() {
         .manage(SettingsState(Mutex::new(settings::load())))
         .manage(auth::AuthState::load())
         .manage(launch::LaunchState::default())
+        .manage(launcher_update::UpdaterState::default())
         .setup(|app| {
             std::fs::create_dir_all(paths::launcher_dir())?;
+            launcher_update::start(app.handle().clone());
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("Elysium Launcher");
             }
@@ -101,7 +104,8 @@ pub fn run() {
             mods::set_mod_enabled,
             updates::check_updates,
             updates::update_mod,
-            updates::update_launcher,
+            launcher_update::launcher_update_status,
+            launcher_update::check_launcher_update,
             open_game_dir,
             open_mods_dir,
             open_logs_dir,

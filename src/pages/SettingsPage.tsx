@@ -1,11 +1,12 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { ArrowDownToLine, FolderOpen, RefreshCw, RotateCcw, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, errorText, type AfterLaunch, type UpdateStatus } from "../api";
+import { api, errorText, type AfterLaunch, type UpdaterStatus, type UpdateStatus } from "../api";
 import { RamSlider } from "../components/RamSlider";
 import { useLaunch } from "../store/launch";
 import { useSettings } from "../store/settings";
 import { toast } from "../store/toasts";
+import { useUpdater } from "../store/updater";
 
 const ABSOLUTE_PATH = /^([A-Za-z]:[\\/]|\\\\)/;
 
@@ -170,38 +171,72 @@ export function SettingsPage() {
         />
       </Section>
 
-      <UpdatesSection launcherVersion={system.launcherVersion} />
+      <UpdatesSection />
     </div>
   );
 }
 
-function UpdatesSection({ launcherVersion }: { launcherVersion: string }) {
-  const [status, setStatus] = useState<UpdateStatus | null>(null);
-  const [busy, setBusy] = useState<"check" | "mod" | "launcher" | null>(null);
+function timeOf(ms: number): string {
+  return new Date(ms).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
 
-  const check = async (quiet = false) => {
+/** One line about what the launcher updater is doing. */
+function launcherStatusText(s: UpdaterStatus | null): string {
+  if (!s) return "";
+  switch (s.stage) {
+    case "checking":
+      return "Проверка обновлений…";
+    case "upToDate":
+      return s.checkedAt ? `Последняя версия · проверено в ${timeOf(s.checkedAt)}` : "Последняя версия";
+    case "waitingForGame":
+      return `Найдена версия ${s.version} — установится после закрытия игры`;
+    case "downloading":
+      return `Скачивается ${s.version}` + (s.progress != null ? ` — ${Math.round(s.progress * 100)}%` : "…");
+    case "installing":
+      return `Устанавливается ${s.version}, лаунчер перезапустится`;
+    case "error":
+      return s.message ?? "Ошибка обновления";
+    default:
+      return "Обновления проверяются автоматически";
+  }
+}
+
+function UpdatesSection() {
+  const updater = useUpdater((s) => s.status);
+  const [mod, setMod] = useState<UpdateStatus | null>(null);
+  const [busy, setBusy] = useState<"check" | "mod" | null>(null);
+  const launcherBusy = updater != null && ["checking", "downloading", "installing"].includes(updater.stage);
+
+  const checkMod = async () => {
+    const s = await api.checkUpdates();
+    setMod(s);
+    return s;
+  };
+
+  useEffect(() => {
+    checkMod().catch(() => {});
+  }, []);
+
+  const check = async () => {
     setBusy("check");
     try {
-      const s = await api.checkUpdates();
-      setStatus(s);
-      if (!quiet && !s.modUpdate && !s.launcherUpdate) toast.success("У вас последние версии");
+      const [found, m] = await Promise.all([api.checkLauncherUpdate(), checkMod()]);
+      if (found) toast.info(`Найдено обновление лаунчера ${found} — устанавливается автоматически`);
+      if (m.modError) toast.error(m.modError);
+      if (!found && !m.modUpdate && !m.modError) toast.success("У вас последние версии");
     } catch (e) {
-      if (!quiet) toast.error(errorText(e));
+      toast.error(errorText(e));
     } finally {
       setBusy(null);
     }
   };
-
-  useEffect(() => {
-    check(true);
-  }, []);
 
   const updateMod = async () => {
     setBusy("mod");
     try {
       const v = await api.updateMod();
       toast.success(`Мод обновлён до ${v} — установится при следующем запуске`);
-      await check(true);
+      await checkMod();
     } catch (e) {
       toast.error(errorText(e));
     } finally {
@@ -209,41 +244,34 @@ function UpdatesSection({ launcherVersion }: { launcherVersion: string }) {
     }
   };
 
-  const updateLauncher = async () => {
-    setBusy("launcher");
-    try {
-      await api.updateLauncher();
-    } catch (e) {
-      toast.error(errorText(e));
-      setBusy(null);
-    }
-  };
-
   return (
-    <Section title="Обновления">
+    <Section title="Обновления" hint="Лаунчер проверяет и ставит обновления сам">
       <div className="versions">
         <div>
           <span className="muted small">Лаунчер</span>
-          <strong>{launcherVersion}</strong>
-          {status?.launcherUpdate && (
-            <button className="btn btn-primary btn-sm" disabled={!!busy} onClick={updateLauncher}>
-              <ArrowDownToLine size={14} /> Обновить до {status.launcherUpdate.version}
-            </button>
+          <strong>{updater?.currentVersion ?? "—"}</strong>
+          <span className={`small ${updater?.stage === "error" ? "danger" : "muted"}`}>{launcherStatusText(updater)}</span>
+          {updater?.stage === "downloading" && updater.progress != null && (
+            <div className="update-progress">
+              <span style={{ width: `${Math.round(updater.progress * 100)}%` }} />
+            </div>
           )}
         </div>
         <div>
           <span className="muted small">Elysium Visuals</span>
-          <strong>{status?.modVersion ?? "—"}</strong>
-          {status?.modUpdate && (
+          <strong>{mod?.modVersion ?? "—"}</strong>
+          {mod?.modError && <span className="small danger">{mod.modError}</span>}
+          {mod?.modUpdate && (
             <button className="btn btn-primary btn-sm" disabled={!!busy} onClick={updateMod}>
-              <ArrowDownToLine size={14} /> Обновить до {status.modUpdate.version}
+              <ArrowDownToLine size={14} /> Обновить до {mod.modUpdate.version}
             </button>
           )}
         </div>
       </div>
       <div className="row">
-        <button className="btn btn-ghost" disabled={!!busy} onClick={() => check()}>
-          {busy === "check" ? <RefreshCw size={16} className="spin" /> : <RotateCcw size={16} />} Проверить обновления
+        <button className="btn btn-ghost" disabled={!!busy || launcherBusy} onClick={check}>
+          {busy === "check" || launcherBusy ? <RefreshCw size={16} className="spin" /> : <RotateCcw size={16} />} Проверить
+          обновления
         </button>
       </div>
     </Section>

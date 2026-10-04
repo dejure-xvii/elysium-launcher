@@ -23,6 +23,8 @@ use crate::settings::{AfterLaunch, Settings, SettingsState};
 pub struct LaunchState {
     /// Installing or running.
     pub busy: AtomicBool,
+    /// A launcher update is being downloaded/installed; launching waits for it.
+    pub updating: AtomicBool,
     pub kill: Mutex<Option<tokio::sync::mpsc::Sender<()>>>,
 }
 
@@ -41,6 +43,9 @@ impl Drop for BusyGuard<'_> {
 }
 
 fn acquire(state: &LaunchState) -> Result<BusyGuard<'_>> {
+    if state.updating.load(Ordering::SeqCst) {
+        return Err(Error::msg("Устанавливается обновление лаунчера, подождите немного"));
+    }
     if state.busy.swap(true, Ordering::SeqCst) {
         return Err(Error::msg("Игра уже устанавливается или запущена"));
     }

@@ -16,6 +16,7 @@ import { useConsole } from "./store/console";
 import { useLaunch } from "./store/launch";
 import { useNav } from "./store/nav";
 import { useSettings } from "./store/settings";
+import { useUpdater } from "./store/updater";
 import { toast } from "./store/toasts";
 
 const pages = {
@@ -31,7 +32,7 @@ export default function App() {
   const Page = pages[page];
 
   useEffect(() => {
-    Promise.all([useSettings.getState().load(), useAccounts.getState().load()]).catch((e) =>
+    Promise.all([useSettings.getState().load(), useAccounts.getState().load(), useUpdater.getState().load()]).catch((e) =>
       toast.error(errorText(e)),
     );
     // A game may still be running if the webview was reloaded.
@@ -42,6 +43,7 @@ export default function App() {
       events.onLog((l) => useConsole.getState().push(l)),
       events.onExit((x) => useLaunch.getState().onExit(x)),
       events.onAccountsChanged(() => useAccounts.getState().load()),
+      events.onLauncherUpdate((s) => useUpdater.getState().onEvent(s)),
     ];
     const block = (e: MouseEvent) => e.preventDefault();
     window.addEventListener("contextmenu", block);

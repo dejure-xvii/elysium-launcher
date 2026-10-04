@@ -1,11 +1,10 @@
-//! Update checks for the mod and the launcher via GitHub Releases.
+//! Update checks for the Elysium Visuals mod via GitHub Releases. The launcher
+//! itself updates through `launcher_update`.
 
 use std::io::Read;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
-use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::config;
 use crate::download::{fetch, http_client, DownloadTask};
@@ -40,10 +39,10 @@ pub struct ReleaseInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatus {
-    pub launcher_version: String,
     pub mod_version: Option<String>,
-    pub launcher_update: Option<ReleaseInfo>,
     pub mod_update: Option<ReleaseInfo>,
+    /// Why the mod check failed, if it did.
+    pub mod_error: Option<String>,
 }
 
 /// Numeric comparison of "v1.2.3"-style versions (build metadata ignored).
@@ -140,29 +139,14 @@ pub async fn sync_mod(client: &reqwest::Client) -> Result<()> {
     }
 }
 
-async fn launcher_update(app: &AppHandle) -> Result<Option<Update>> {
-    Ok(app.updater()?.check().await?)
-}
-
 #[tauri::command]
-pub async fn check_updates(app: AppHandle) -> Result<UpdateStatus> {
+pub async fn check_updates() -> Result<UpdateStatus> {
     let mod_version = fabric::mod_source().and_then(|p| jar_mod_version(&p));
-    let mut status = UpdateStatus {
-        launcher_version: config::LAUNCHER_VERSION.to_string(),
-        mod_version: mod_version.clone(),
-        launcher_update: None,
-        mod_update: None,
-    };
-    if let Some(u) = launcher_update(&app).await? {
-        status.launcher_update = Some(ReleaseInfo {
-            page: format!("https://github.com/{}/releases/tag/v{}", config::LAUNCHER_REPO, u.version),
-            notes: u.body.clone().unwrap_or_default(),
-            version: u.version,
-        });
-    }
-    let r = latest(&http_client(), config::MOD_REPO).await?;
-    if is_newer(&r.tag_name, mod_version.as_deref().unwrap_or("0")) {
-        status.mod_update = Some(info(&r));
+    let mut status = UpdateStatus { mod_version: mod_version.clone(), mod_update: None, mod_error: None };
+    match latest(&http_client(), config::MOD_REPO).await {
+        Ok(r) if is_newer(&r.tag_name, mod_version.as_deref().unwrap_or("0")) => status.mod_update = Some(info(&r)),
+        Ok(_) => {}
+        Err(e) => status.mod_error = Some(format!("Не удалось проверить обновления мода: {e}")),
     }
     Ok(status)
 }
@@ -175,16 +159,6 @@ pub async fn update_mod() -> Result<String> {
     let r = latest(&client, config::MOD_REPO).await?;
     download_mod(&client, &r).await?;
     Ok(info(&r).version)
-}
-
-/// Downloads the signed launcher update, verifies it and runs the installer.
-#[tauri::command]
-pub async fn update_launcher(app: AppHandle) -> Result<()> {
-    let update = launcher_update(&app)
-        .await?
-        .ok_or_else(|| Error::msg("У вас последняя версия лаунчера"))?;
-    update.download_and_install(|_, _| {}, || {}).await?;
-    app.restart();
 }
 
 #[cfg(test)]

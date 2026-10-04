@@ -33,10 +33,8 @@ pub fn ms_client_configured() -> bool {
 }
 
 /// GitHub repository ("owner/repo") whose latest release provides the mod jar.
-/// Launcher updates are checked via the updater endpoint in `tauri.conf.json`;
-/// `LAUNCHER_REPO` is only used for release page links.
+/// Launcher updates come from the updater endpoints in `tauri.conf.json`.
 pub const MOD_REPO: &str = "dejure-xvii/elysium-visuals";
-pub const LAUNCHER_REPO: &str = "dejure-xvii/elysium-launcher";
 
 /// File name of the mod inside `mods/`.
 pub const MOD_FILE_NAME: &str = "elysium-visuals.jar";
