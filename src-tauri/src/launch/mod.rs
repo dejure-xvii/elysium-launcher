@@ -16,6 +16,7 @@ use crate::download::manifest::{version_dir, Features, VersionJson};
 use crate::download::{self, assets, java, libraries, DownloadTask, Reporter, Verify};
 use crate::error::{Error, Result};
 use crate::fabric;
+use crate::mods;
 use crate::settings::{AfterLaunch, Settings, SettingsState};
 
 #[derive(Default)]
@@ -59,6 +60,7 @@ pub struct Prepared {
 pub async fn prepare(
     reporter: &Reporter,
     game_dir: &Path,
+    disabled_mods: &[String],
     force: bool,
 ) -> Result<Prepared> {
     let client = download::http_client();
@@ -85,6 +87,7 @@ pub async fn prepare(
             path: version_dir(game_dir, &vanilla.id).join(format!("{}.jar", vanilla.id)),
             sha1: a.sha1.clone(),
             size: a.size,
+            sha512: None,
         })
         .ok_or_else(|| Error::msg("В описании версии нет клиента"))?;
     let client_jar = client_task.path.clone();
@@ -128,6 +131,8 @@ pub async fn prepare(
     reporter.status("mods", "Установка Fabric API и Elysium Visuals");
     fabric::install_fabric_api(&client, game_dir).await?;
     fabric::install_mod(&client, game_dir).await?;
+    reporter.status("mods", "Установка модов");
+    mods::sync(&client, game_dir, disabled_mods, reporter).await?;
 
     let mut classpath = libs.classpath;
     classpath.push(client_jar);
@@ -196,7 +201,7 @@ pub async fn launch_game(
     reporter.status("auth", "Проверка аккаунта");
     let auth = auth::prepare_launch(&app, s.selected_account.as_deref()).await?;
 
-    let prepared = prepare(&reporter, &game_dir, false).await?;
+    let prepared = prepare(&reporter, &game_dir, &s.disabled_mods, false).await?;
 
     reporter.status("launch", "Запуск…");
     let (jvm, game) = build_command(&prepared, &s, &auth, &game_dir);
@@ -229,9 +234,10 @@ pub async fn reinstall_files(
     settings: State<'_, SettingsState>,
 ) -> Result<()> {
     let _guard = acquire(&launch)?;
-    let game_dir = settings.0.lock().unwrap().game_dir();
+    let s = settings.0.lock().unwrap().clone();
+    let game_dir = s.game_dir();
     let reporter = Reporter::new(app.clone());
-    prepare(&reporter, &game_dir, true).await?;
+    prepare(&reporter, &game_dir, &s.disabled_mods, true).await?;
     reporter.status("done", "Файлы проверены и переустановлены");
     Ok(())
 }
@@ -254,28 +260,68 @@ pub fn is_busy(launch: State<'_, LaunchState>) -> bool {
 mod tests {
     use super::*;
     use std::io::{BufRead, BufReader};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
-    /// Full install into the default game dir + boot with an offline account
-    /// until Fabric reports the loaded mods. Network-heavy:
+    /// Fabric mod ids that must be loaded after a clean install.
+    const EXPECTED_MODS: &[&str] = &[
+        "elysium-visuals",
+        "fabric-api",
+        "sodium",
+        "iris",
+        "entityculling",
+        "immediatelyfast",
+        "modmenu",
+        "placeholder-api",
+        "punchy",
+    ];
+
+    /// Full install + boot with an offline account until the game finishes
+    /// loading. Uses `ELYSIUM_E2E_DIR` (an empty folder for a clean install)
+    /// or the default game dir. Network-heavy:
     /// `cargo test e2e -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn e2e_install_and_boot() {
-        let settings = Settings::default();
+        let mut settings = Settings::default();
+        if let Ok(dir) = std::env::var("ELYSIUM_E2E_DIR") {
+            settings.game_dir = dir;
+        }
         let game_dir = settings.game_dir();
-        let last = std::sync::Mutex::new(String::new());
-        let reporter = Reporter::from_fn(move |e| {
-            let mut last = last.lock().unwrap();
-            if *last != e.stage || e.current == e.total {
-                println!("[{}] {}", e.stage, e.label);
-                *last = e.stage.to_string();
-            }
-        });
+        println!("game dir: {}", game_dir.display());
+        let mod_downloads = Arc::new(AtomicUsize::new(0));
+        let reporter = {
+            let last = std::sync::Mutex::new(String::new());
+            let mod_downloads = mod_downloads.clone();
+            Reporter::from_fn(move |e| {
+                if e.stage == "mods" && e.total > 0 {
+                    mod_downloads.store(e.total, Ordering::SeqCst);
+                }
+                let mut last = last.lock().unwrap();
+                if *last != e.stage || e.current == e.total {
+                    println!("[{}] {}", e.stage, e.label);
+                    *last = e.stage.to_string();
+                }
+            })
+        };
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let prepared = rt.block_on(prepare(&reporter, &game_dir, false)).expect("prepare");
+        let prepared = rt.block_on(prepare(&reporter, &game_dir, &[], false)).expect("prepare");
         println!("java: {}", prepared.java.display());
         println!("classpath entries: {}", prepared.classpath.len());
+
+        let state = crate::mods::load_state(&game_dir);
+        for m in &state.mods {
+            println!("mod: {} {} ({})", m.name, m.version_number, m.filename);
+            assert!(game_dir.join("mods").join(&m.filename).is_file(), "{} missing", m.filename);
+        }
+        assert!(state.mods.len() >= 7, "expected 6 listed mods + Text Placeholder API");
+
+        // A second run finds everything in place.
+        mod_downloads.store(0, Ordering::SeqCst);
+        rt.block_on(prepare(&reporter, &game_dir, &[], false)).expect("prepare again");
+        assert_eq!(mod_downloads.load(Ordering::SeqCst), 0, "mods re-downloaded on second run");
 
         let name = "ElysiumTest";
         let auth = LaunchAuth {
@@ -291,24 +337,67 @@ mod tests {
             .args(&game)
             .current_dir(&game_dir)
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .expect("spawn java");
 
-        let stdout = child.stdout.take().unwrap();
-        let mut found_mod = false;
-        let mut lines = 0;
-        for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
-            lines += 1;
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        for out in [
+            Box::new(child.stdout.take().unwrap()) as Box<dyn std::io::Read + Send>,
+            Box::new(child.stderr.take().unwrap()),
+        ] {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(out).lines().map_while(|l| l.ok()) {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(tx);
+
+        // Fabric prints "Loading N mods:" followed by "	- id version" lines.
+        let mut loaded: Vec<String> = Vec::new();
+        let mut in_list = false;
+        let mut booted = false;
+        let mut failure = None;
+        let deadline = Instant::now() + Duration::from_secs(240);
+        while let Ok(line) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             println!("{line}");
-            if line.contains("elysium-visuals") {
-                found_mod = true;
+            if line.contains("Loading") && line.contains("mods:") {
+                in_list = true;
+                continue;
             }
-            if line.contains("Backend library") || line.contains("OpenGL") || lines > 400 {
+            if in_list {
+                match line.trim_start().strip_prefix("- ") {
+                    Some(rest) => loaded.push(rest.split_whitespace().next().unwrap_or("").to_string()),
+                    None if line.trim_start().starts_with("|--") || line.trim_start().starts_with(r"\--") => {}
+                    None => in_list = false,
+                }
+            }
+            if line.contains("---- Minecraft Crash Report ----")
+                || line.contains("Mixin apply failed")
+                || line.contains("Incompatible mods found")
+                || line.contains("Mod resolution failed")
+            {
+                failure = Some(line.clone());
+                break;
+            }
+            if line.contains("Sound engine started") || line.contains("Created:") && line.contains("atlas") {
+                booted = true;
+                break;
+            }
+            if Instant::now() >= deadline {
                 break;
             }
         }
         let _ = child.kill();
-        assert!(found_mod, "Fabric did not list elysium-visuals");
+        println!("loaded mods: {loaded:?}");
+        assert!(failure.is_none(), "game failed: {failure:?}");
+        for id in EXPECTED_MODS {
+            assert!(loaded.iter().any(|m| m == id), "Fabric did not load {id}");
+        }
+        assert!(booted, "game did not finish loading in time");
     }
 }

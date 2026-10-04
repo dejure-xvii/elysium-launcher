@@ -35,11 +35,20 @@ pub fn ms_client_configured() -> bool {
 /// GitHub repository ("owner/repo") whose latest release provides the mod jar.
 /// Launcher updates are checked via the updater endpoint in `tauri.conf.json`;
 /// `LAUNCHER_REPO` is only used for release page links.
-pub const MOD_REPO: &str = "kirillyalovenko463-hash/elysium-visuals";
-pub const LAUNCHER_REPO: &str = "kirillyalovenko463-hash/elysium-launcher";
+pub const MOD_REPO: &str = "dejure-xvii/elysium-visuals";
+pub const LAUNCHER_REPO: &str = "dejure-xvii/elysium-launcher";
 
 /// File name of the mod inside `mods/`.
 pub const MOD_FILE_NAME: &str = "elysium-visuals.jar";
 pub const MOD_FILE_PREFIX: &str = "elysium-visuals";
 
 pub const USER_AGENT: &str = concat!("ElysiumLauncher/", env!("CARGO_PKG_VERSION"));
+
+/// List of mods installed alongside the client (Modrinth project/version ids).
+pub const DEFAULT_MODS_URL: &str =
+    "https://raw.githubusercontent.com/dejure-xvii/elysium-visuals/main/default-mods.json";
+pub const MODRINTH_API_URL: &str = "https://api.modrinth.com/v2";
+/// Only files from this host are downloaded for Modrinth mods.
+pub const MODRINTH_CDN_PREFIX: &str = "https://cdn.modrinth.com/";
+/// Fabric API is installed from Maven (`FABRIC_API_VERSION`), never from Modrinth.
+pub const FABRIC_API_PROJECT: &str = "P7dR8mSH";

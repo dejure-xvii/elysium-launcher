@@ -4,6 +4,7 @@ mod download;
 mod error;
 mod fabric;
 mod launch;
+mod mods;
 mod paths;
 mod settings;
 mod system;
@@ -27,6 +28,12 @@ fn open(app: &AppHandle, path: &std::path::Path) -> Result<()> {
 #[tauri::command]
 fn open_game_dir(app: AppHandle, settings: State<SettingsState>) -> Result<()> {
     let dir = settings.0.lock().unwrap().game_dir();
+    open(&app, &dir)
+}
+
+#[tauri::command]
+fn open_mods_dir(app: AppHandle, settings: State<SettingsState>) -> Result<()> {
+    let dir = settings.0.lock().unwrap().game_dir().join("mods");
     open(&app, &dir)
 }
 
@@ -90,10 +97,13 @@ pub fn run() {
             launch::reinstall_files,
             launch::stop_game,
             launch::is_busy,
+            mods::list_mods,
+            mods::set_mod_enabled,
             updates::check_updates,
             updates::update_mod,
             updates::update_launcher,
             open_game_dir,
+            open_mods_dir,
             open_logs_dir,
             open_file,
             open_url,

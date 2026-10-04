@@ -67,15 +67,19 @@ pub fn is_newer(remote: &str, local: &str) -> bool {
     false
 }
 
-/// Reads `version` from `fabric.mod.json` inside a mod jar.
-pub fn jar_mod_version(jar: &Path) -> Option<String> {
+/// Parsed `fabric.mod.json` of a mod jar.
+pub fn jar_mod_json(jar: &Path) -> Option<serde_json::Value> {
     let file = std::fs::File::open(jar).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
     let mut entry = zip.by_name("fabric.mod.json").ok()?;
     let mut text = String::new();
     entry.read_to_string(&mut text).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    json.get("version")?.as_str().map(str::to_string)
+    serde_json::from_str(&text).ok()
+}
+
+/// Reads `version` from `fabric.mod.json` inside a mod jar.
+pub fn jar_mod_version(jar: &Path) -> Option<String> {
+    jar_mod_json(jar)?.get("version")?.as_str().map(str::to_string)
 }
 
 async fn latest(client: &reqwest::Client, repo: &str) -> Result<GhRelease> {
@@ -110,6 +114,7 @@ async fn download_mod(client: &reqwest::Client, r: &GhRelease) -> Result<()> {
         path: fabric::downloaded_mod(),
         sha1: None,
         size: Some(asset.size),
+        sha512: None,
     };
     fetch(client, &task).await
 }

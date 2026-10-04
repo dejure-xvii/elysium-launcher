@@ -54,7 +54,7 @@ fn join_url(base: &str, path: &str) -> String {
 
 fn add(out: &mut ResolvedLibraries, path: PathBuf, url: String, sha1: Option<String>, size: Option<u64>) {
     if !url.is_empty() {
-        out.downloads.push(DownloadTask { url, path: path.clone(), sha1, size });
+        out.downloads.push(DownloadTask { url, path: path.clone(), sha1, sha512: None, size });
     }
 }
 

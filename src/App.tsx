@@ -8,6 +8,7 @@ import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ConsolePage } from "./pages/ConsolePage";
+import { ModsPage } from "./pages/ModsPage";
 import { PlayPage } from "./pages/PlayPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { useAccounts } from "./store/accounts";
@@ -19,6 +20,7 @@ import { toast } from "./store/toasts";
 
 const pages = {
   play: PlayPage,
+  mods: ModsPage,
   settings: SettingsPage,
   console: ConsolePage,
   accounts: AccountsPage,

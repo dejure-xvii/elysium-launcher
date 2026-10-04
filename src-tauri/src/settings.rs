@@ -28,6 +28,8 @@ pub struct Settings {
     pub jvm_args: String,
     pub after_launch: AfterLaunch,
     pub selected_account: Option<String>,
+    /// Modrinth project ids of optional built-in mods the user switched off.
+    pub disabled_mods: Vec<String>,
 }
 
 impl Default for Settings {
@@ -42,6 +44,7 @@ impl Default for Settings {
             jvm_args: String::new(),
             after_launch: AfterLaunch::Minimize,
             selected_account: None,
+            disabled_mods: Vec::new(),
         }
     }
 }

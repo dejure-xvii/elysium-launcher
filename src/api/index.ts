@@ -13,6 +13,8 @@ export interface Settings {
   jvmArgs: string;
   afterLaunch: AfterLaunch;
   selectedAccount: string | null;
+  /** Modrinth project ids of optional built-in mods that are switched off. */
+  disabledMods: string[];
 }
 
 export interface SystemInfo {
@@ -71,6 +73,29 @@ export interface UpdateStatus {
   modUpdate: ReleaseInfo | null;
 }
 
+export interface BuiltinMod {
+  id: string;
+  name: string;
+  version: string | null;
+  required: boolean;
+  enabled: boolean;
+  installed: boolean;
+  /** Mods that need this one (set for dependencies). */
+  dependencyOf: string[];
+  replacedByUser: boolean;
+}
+
+export interface UserMod {
+  file: string;
+  name: string;
+  version: string | null;
+}
+
+export interface ModsView {
+  builtin: BuiltinMod[];
+  user: UserMod[];
+}
+
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
@@ -89,11 +114,15 @@ export const api = {
   stopGame: () => invoke<void>("stop_game"),
   isBusy: () => invoke<boolean>("is_busy"),
 
+  listMods: () => invoke<ModsView>("list_mods"),
+  setModEnabled: (id: string, enabled: boolean) => invoke<Settings>("set_mod_enabled", { id, enabled }),
+
   checkUpdates: () => invoke<UpdateStatus>("check_updates"),
   updateMod: () => invoke<string>("update_mod"),
   updateLauncher: () => invoke<void>("update_launcher"),
 
   openGameDir: () => invoke<void>("open_game_dir"),
+  openModsDir: () => invoke<void>("open_mods_dir"),
   openLogsDir: () => invoke<void>("open_logs_dir"),
   openFile: (path: string) => invoke<void>("open_file", { path }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),

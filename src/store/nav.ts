@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Page = "play" | "settings" | "console" | "accounts";
+export type Page = "play" | "mods" | "settings" | "console" | "accounts";
 
 interface NavStore {
   page: Page;

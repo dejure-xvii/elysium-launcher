@@ -6,6 +6,9 @@
 ## Возможности
 - Вход через Microsoft (Device Code → Xbox Live → XSTS → Minecraft) и офлайн-аккаунты, несколько аккаунтов, головы скинов.
 - Сам скачивает Minecraft 26.2, библиотеки, ассеты, нативы, Fabric Loader 0.19.5, Fabric API и последнюю версию мода из GitHub Releases.
+- Ставит моды по умолчанию (Sodium, Iris, Entity Culling, ImmediatelyFast, Mod Menu, Punchy!) по списку
+  [`default-mods.json`](https://github.com/dejure-xvii/elysium-visuals/blob/main/default-mods.json) с Modrinth
+  (sha512, зависимости подтягиваются сами). Вкладка «Моды»: необязательные можно выключить, свои моды лаунчер не трогает.
 - Нет Java 25 → скачивает портативную Temurin 25 JRE в `%APPDATA%\ElysiumLauncher\runtime`.
 - Проверка по SHA-1, докачивается только недостающее; работает и офлайн, если файлы уже скачаны.
 - Консоль с логами в реальном времени, диалог при краше, автообновление лаунчера.
@@ -16,13 +19,14 @@ src/                      UI (React)
   api/                    типизированные вызовы Rust-команд и событий
   store/                  состояние: settings, accounts, launch, console, toasts, nav
   components/             TitleBar, Sidebar, PlayButton, AccountPicker, SkinHead, RamSlider, …
-  pages/                  Play, Settings, Console, Accounts
+  pages/                  Play, Mods, Settings, Console, Accounts
   styles/                 tokens.css (тема), glass.css (Liquid Glass), app.css
 src-tauri/src/
   config.rs               версии MC/Fabric, Client ID, репозиторий мода
   auth/                   microsoft.rs, xbox.rs, minecraft.rs, offline.rs, store.rs (Credential Manager)
   download/               параллельная загрузка + SHA-1, manifest, libraries, assets, java
   fabric/                 профиль Fabric, Fabric API, установка мода
+  mods/                   моды по умолчанию: список, Modrinth, зависимости, синхронизация mods/
   launch/                 конвейер установки, аргументы запуска, процесс игры и логи
   settings.rs, system.rs, updates.rs
 .github/workflows/        сборка и публикация релизов
@@ -86,11 +90,20 @@ Microsoft требует, чтобы у каждого лаунчера был �
 
 ## Обновления
 **Мод.** При каждом запуске игры лаунчер смотрит последний релиз
-[elysium-visuals](https://github.com/kirillyalovenko463-hash/elysium-visuals/releases) (`MOD_REPO` в
+[elysium-visuals](https://github.com/dejure-xvii/elysium-visuals/releases) (`MOD_REPO` в
 `config.rs`) и, если версия новее, скачивает `.jar` (кроме `*-sources.jar`) в
 `%APPDATA%\ElysiumLauncher\mod\`. Без интернета используется уже скачанная копия.
 Чтобы выпустить новую версию мода, создайте в его репозитории релиз с тегом `vX.Y.Z`
 (совпадает с `version` в `fabric.mod.json`) и приложите jar.
+
+**Моды по умолчанию.** Список — `default-mods.json` в репозитории мода (`DEFAULT_MODS_URL` в `config.rs`):
+ID проекта и версии Modrinth, флаг `required`. Лаунчер скачивает файлы только через Modrinth API,
+проверяет sha512, ставит required-зависимости (кроме Fabric API — он идёт с Maven) и запоминает
+свои файлы в `<папка игры>/.elysium-mods.json`: при смене версии в списке или выключении мода
+удаляются только они. Если у пользователя уже есть свой jar того же проекта, встроенный не ставится.
+Debug-сборка читает список из соседней папки `elysium-visuals-template-26.2`.
+Проверка чистой установки с запуском игры:
+`$env:ELYSIUM_E2E_DIR="C:\temp\elysium-e2e"; cargo test e2e -- --ignored --nocapture`.
 
 **Лаунчер.** Tauri updater читает `releases/latest/download/latest.json` этого репозитория,
 скачивает установщик и проверяет подпись публичным ключом из `tauri.conf.json`.

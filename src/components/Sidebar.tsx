@@ -1,11 +1,12 @@
 import { motion } from "framer-motion";
-import { Play, Settings, SquareTerminal, Users, type LucideIcon } from "lucide-react";
+import { Play, Puzzle, Settings, SquareTerminal, Users, type LucideIcon } from "lucide-react";
 import logo from "../assets/logo.svg";
 import { useLaunch } from "../store/launch";
 import { useNav, type Page } from "../store/nav";
 
 const items: { page: Page; icon: LucideIcon; label: string }[] = [
   { page: "play", icon: Play, label: "Играть" },
+  { page: "mods", icon: Puzzle, label: "Моды" },
   { page: "settings", icon: Settings, label: "Настройки" },
   { page: "console", icon: SquareTerminal, label: "Консоль" },
   { page: "accounts", icon: Users, label: "Аккаунты" },

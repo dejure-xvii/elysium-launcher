@@ -219,7 +219,7 @@ pub async fn fetch_vanilla(client: &reqwest::Client, game_dir: &Path) -> Result<
             .into_iter()
             .find(|v| v.id == id)
             .ok_or_else(|| Error::msg(format!("Версия {id} не найдена на серверах Mojang")))?;
-        let task = DownloadTask { url: entry.url, path: path.clone(), sha1: entry.sha1, size: None };
+        let task = DownloadTask { url: entry.url, path: path.clone(), sha1: entry.sha1, sha512: None, size: None };
         if !is_valid(&task, Verify::Full) {
             fetch(client, &task).await?;
         }

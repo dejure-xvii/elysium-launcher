@@ -296,6 +296,16 @@ input[type="number"].input::-webkit-inner-spin-button { opacity: 0.4; }
 }
 .toggle input:checked + .toggle-track { background: var(--accent); border-color: transparent; }
 .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
+.toggle.toggle-disabled { cursor: not-allowed; opacity: 0.45; }
+
+/* Mods */
+.mod-list { display: flex; flex-direction: column; }
+.mod-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.mod-row + .mod-row { border-top: 1px solid var(--glass-border); }
+.mod-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.mod-name { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; font-weight: 550; }
+.mod-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mod-meta .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Segmented control */
 .segmented {
