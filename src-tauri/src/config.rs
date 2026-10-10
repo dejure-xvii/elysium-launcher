@@ -50,3 +50,7 @@ pub const MODRINTH_API_URL: &str = "https://api.modrinth.com/v2";
 pub const MODRINTH_CDN_PREFIX: &str = "https://cdn.modrinth.com/";
 /// Fabric API is installed from Maven (`FABRIC_API_VERSION`), never from Modrinth.
 pub const FABRIC_API_PROJECT: &str = "P7dR8mSH";
+/// ffmpeg for the mod's Replay (installed only when the mod asks for it):
+/// the official Windows essentials build by gyan.dev, checked against its published SHA-256.
+pub const FFMPEG_URL: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+pub const FFMPEG_SHA256_URL: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256";

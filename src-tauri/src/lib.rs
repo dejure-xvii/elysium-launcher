@@ -9,6 +9,7 @@ mod mods;
 mod paths;
 mod settings;
 mod system;
+mod tools;
 mod updates;
 
 use std::sync::Mutex;

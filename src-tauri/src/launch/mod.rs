@@ -138,6 +138,8 @@ pub async fn prepare(
     fabric::install_mod(&client, game_dir).await?;
     reporter.status("mods", "Установка модов");
     mods::sync(&client, game_dir, disabled_mods, reporter).await?;
+    // Tools the mod asked for (ffmpeg for Replay); never blocks the launch.
+    crate::tools::sync(&client, game_dir, reporter).await;
 
     let mut classpath = libs.classpath;
     classpath.push(client_jar);
