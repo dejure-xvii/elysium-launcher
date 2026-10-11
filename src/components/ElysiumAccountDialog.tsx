@@ -138,14 +138,9 @@ function Profile({ user }: { user: ElysiumUser }) {
         <ElysiumAvatar user={user} size={52} />
         <div className="elysium-profile-info">
           <h2>{user.username}</h2>
-          <span className="muted small">{user.email}</span>
+          {user.email && <span className="muted small">{user.email}</span>}
         </div>
       </div>
-      {!user.emailVerified && (
-        <span className="small warn-text">
-          <TriangleAlert size={13} /> Почта не подтверждена — письмо можно отправить ещё раз в личном кабинете
-        </span>
-      )}
       <p className="muted">
         Аккаунт Elysium не влияет на запуск игры и не связан с Minecraft-аккаунтами. Скоро здесь появятся синхронизация
         настроек и друзья.
