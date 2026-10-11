@@ -37,7 +37,7 @@ export interface Account {
 export interface ElysiumUser {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
   emailVerified: boolean;
 }
 

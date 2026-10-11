@@ -15,7 +15,9 @@ use crate::error::{Error, Result};
 pub struct User {
     pub id: String,
     pub username: String,
-    pub email: String,
+    /// Optional on the site; `None` when the account has no e-mail.
+    #[serde(default)]
+    pub email: Option<String>,
     pub email_verified: bool,
 }
 
