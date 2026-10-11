@@ -39,6 +39,13 @@ pub const ELYSIUM_SITE_URL: &str = match option_env!("ELYSIUM_SITE_URL") {
     _ => "https://elysium-visuals.elysium-site.workers.dev",
 };
 
+/// Elysium Social server for the game (Party, IRC, Messenger). `None` keeps the mod's built-in address;
+/// set `ELYSIUM_SOCIAL_URL` at build time to point the game at a local `wrangler dev` (http://127.0.0.1:8788).
+pub const ELYSIUM_SOCIAL_URL: Option<&str> = match option_env!("ELYSIUM_SOCIAL_URL") {
+    Some(url) if !url.is_empty() => Some(url),
+    _ => None,
+};
+
 /// GitHub repository ("owner/repo") whose latest release provides the mod jar.
 /// Launcher updates come from the updater endpoints in `tauri.conf.json`.
 pub const MOD_REPO: &str = "dejure-xvii/elysium-visuals";

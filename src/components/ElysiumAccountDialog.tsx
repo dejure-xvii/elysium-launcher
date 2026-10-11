@@ -147,8 +147,8 @@ function Profile({ user }: { user: ElysiumUser }) {
         </span>
       )}
       <p className="muted">
-        Аккаунт Elysium не влияет на запуск игры и не связан с Minecraft-аккаунтами. Скоро здесь появятся синхронизация
-        настроек и друзья.
+        Аккаунт Elysium включает в игре пати, общий чат и мессенджер. Пароль в игру не передаётся — только одноразовый
+        ключ при запуске. С Minecraft-аккаунтами аккаунт Elysium не связан.
       </p>
       <div className="modal-actions">
         <button className="btn btn-primary" onClick={() => openPage("account")}>

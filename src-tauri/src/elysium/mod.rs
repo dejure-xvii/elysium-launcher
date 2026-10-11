@@ -82,6 +82,21 @@ fn forget(state: &ElysiumState) -> Result<()> {
     delete_token()
 }
 
+/// A one-time ticket for the game, or `None` when the launcher is not signed in.
+/// A revoked session signs the launcher out, like `elysium_refresh`.
+pub async fn game_ticket(state: &ElysiumState) -> Result<Option<String>> {
+    let Some(token) = load_token()? else {
+        return Ok(None);
+    };
+    match api::game_ticket(&token).await? {
+        Authed::Ok(t) => Ok(Some(t.ticket)),
+        Authed::SignedOut => {
+            forget(state)?;
+            Ok(None)
+        }
+    }
+}
+
 // ---------- commands ----------
 
 /// Cached account, without a network call.
