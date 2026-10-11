@@ -112,6 +112,17 @@ pub async fn me(token: &str) -> Result<Authed<User>> {
     })
 }
 
+#[derive(Deserialize)]
+pub struct GameTicket {
+    pub ticket: String,
+}
+
+/// One-time ticket (2 minutes) that signs the game in to Elysium Social. The launcher token itself
+/// never reaches the game.
+pub async fn game_ticket(token: &str) -> Result<Authed<GameTicket>> {
+    post::<GameTicket>("game-ticket", token, &serde_json::json!({})).await
+}
+
 pub async fn logout(token: &str) -> Result<()> {
     post::<Value>("logout", token, &serde_json::json!({})).await?;
     Ok(())

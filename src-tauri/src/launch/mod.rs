@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auth::{self, LaunchAuth};
 use crate::config;
+use crate::elysium::{self, ElysiumState};
 use crate::download::manifest::{version_dir, Features, VersionJson};
 use crate::download::{self, assets, java, libraries, DownloadTask, Reporter, Verify};
 use crate::error::{Error, Result};
@@ -194,6 +195,30 @@ fn build_command(p: &Prepared, s: &Settings, auth: &LaunchAuth, game_dir: &Path)
     (jvm, game)
 }
 
+/// Elysium Social sign-in for the game: a one-time ticket in the environment (and the server address in
+/// dev builds). Without an Elysium account, or when the site is unreachable, the game starts without it.
+async fn social_env(app: &AppHandle) -> (Vec<(&'static str, String)>, Vec<String>) {
+    let mut env = Vec::new();
+    let mut secrets = Vec::new();
+    match elysium::game_ticket(&app.state::<ElysiumState>()).await {
+        Ok(Some(ticket)) => {
+            secrets.push(ticket.clone());
+            env.push((process::SOCIAL_TICKET_ENV, ticket));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            let _ = app.emit(
+                "game-log",
+                process::LogLine { line: format!("[Launcher] Социальные функции Elysium недоступны: {e}"), stderr: true },
+            );
+        }
+    }
+    if let Some(url) = config::ELYSIUM_SOCIAL_URL {
+        env.push((process::SOCIAL_URL_ENV, url.to_string()));
+    }
+    (env, secrets)
+}
+
 #[tauri::command]
 pub async fn launch_game(
     app: AppHandle,
@@ -213,7 +238,9 @@ pub async fn launch_game(
     reporter.status("launch", "Запуск…");
     let (jvm, game) = build_command(&prepared, &s, &auth, &game_dir);
     let piped = s.after_launch != AfterLaunch::Close;
-    process::spawn(&app, &prepared.java, &game_dir, jvm, game, &auth.access_token, piped).await?;
+    let (env, mut secrets) = social_env(&app).await;
+    secrets.push(auth.access_token.clone());
+    process::spawn(&app, &prepared.java, &game_dir, jvm, game, env, secrets, piped).await?;
     guard.armed = false; // the process watcher clears `busy` on exit
 
     if let Some(window) = app.get_webview_window("main") {

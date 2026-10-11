@@ -31,14 +31,24 @@ pub struct ExitEvent {
     pub log_file: Option<String>,
 }
 
-fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, reader: R, stderr: bool, secret: String) {
+/// Environment variable with the one-time Elysium Social ticket. Not an argument: Minecraft writes its
+/// arguments to latest.log and crash reports, but never the environment.
+pub const SOCIAL_TICKET_ENV: &str = "ELYSIUM_SOCIAL_TICKET";
+pub const SOCIAL_URL_ENV: &str = "ELYSIUM_SOCIAL_URL";
+
+/// Hides tokens in a game log line. Short values (an offline account's token is "0") are not secrets.
+fn redact(line: String, secrets: &[String]) -> String {
+    secrets
+        .iter()
+        .filter(|s| s.len() >= 8)
+        .fold(line, |line, s| if line.contains(s.as_str()) { line.replace(s.as_str(), "<скрыто>") } else { line })
+}
+
+fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, reader: R, stderr: bool, secrets: Vec<String>) {
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(reader).split(b'\n');
         while let Ok(Some(bytes)) = lines.next_segment().await {
-            let mut line = String::from_utf8_lossy(&bytes).trim_end_matches('\r').to_string();
-            if !secret.is_empty() && line.contains(&secret) {
-                line = line.replace(&secret, "<скрыто>");
-            }
+            let line = redact(String::from_utf8_lossy(&bytes).trim_end_matches('\r').to_string(), &secrets);
             let _ = app.emit("game-log", LogLine { line, stderr });
         }
     });
@@ -63,7 +73,8 @@ pub async fn spawn(
     game_dir: &Path,
     jvm: Vec<String>,
     game: Vec<String>,
-    secret: &str,
+    env: Vec<(&'static str, String)>,
+    secrets: Vec<String>,
     piped: bool,
 ) -> Result<()> {
     let mut cmd = Command::new(java);
@@ -73,6 +84,11 @@ pub async fn spawn(
         .stdin(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .kill_on_drop(false);
+    // Never pass on values the launcher itself was started with.
+    cmd.env_remove(SOCIAL_TICKET_ENV).env_remove(SOCIAL_URL_ENV);
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
     if piped {
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     } else {
@@ -89,10 +105,10 @@ pub async fn spawn(
         LogLine { line: format!("[Launcher] Запуск: {}", java.display()), stderr: false },
     );
     if let Some(out) = child.stdout.take() {
-        pump(app.clone(), out, false, secret.to_string());
+        pump(app.clone(), out, false, secrets.clone());
     }
     if let Some(err) = child.stderr.take() {
-        pump(app.clone(), err, true, secret.to_string());
+        pump(app.clone(), err, true, secrets);
     }
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -135,4 +151,23 @@ pub async fn spawn(
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_hides_every_token() {
+        let secrets = vec!["mc-access-token-123".to_string(), "TicketTicketTicket_xyz".to_string()];
+        let line = "token=mc-access-token-123 ticket=TicketTicketTicket_xyz again mc-access-token-123".to_string();
+        assert_eq!(redact(line, &secrets), "token=<скрыто> ticket=<скрыто> again <скрыто>");
+    }
+
+    #[test]
+    fn redact_ignores_short_values() {
+        // An offline account's access token is "0": hiding it would garble every number in the log.
+        let secrets = vec!["0".to_string()];
+        assert_eq!(redact("Loaded 10 mods".to_string(), &secrets), "Loaded 10 mods");
+    }
 }
