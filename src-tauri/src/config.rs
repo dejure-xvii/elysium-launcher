@@ -32,6 +32,13 @@ pub fn ms_client_configured() -> bool {
     MS_CLIENT_ID != "00000000-0000-0000-0000-000000000000"
 }
 
+/// Elysium site: accounts API (`/api/v1`) and the pages opened in the browser (register, forgot…).
+/// Override at build time with `ELYSIUM_SITE_URL` (debug builds may use http://127.0.0.1 for `wrangler dev`).
+pub const ELYSIUM_SITE_URL: &str = match option_env!("ELYSIUM_SITE_URL") {
+    Some(url) if !url.is_empty() => url,
+    _ => "https://elysium-visuals.elysium-site.workers.dev",
+};
+
 /// GitHub repository ("owner/repo") whose latest release provides the mod jar.
 /// Launcher updates come from the updater endpoints in `tauri.conf.json`.
 pub const MOD_REPO: &str = "dejure-xvii/elysium-visuals";

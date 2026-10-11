@@ -1,6 +1,7 @@
 mod auth;
 mod config;
 mod download;
+mod elysium;
 mod error;
 mod fabric;
 mod launch;
@@ -76,6 +77,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState(Mutex::new(settings::load())))
         .manage(auth::AuthState::load())
+        .manage(elysium::ElysiumState::load())
         .manage(launch::LaunchState::default())
         .manage(launcher_update::UpdaterState::default())
         .setup(|app| {
@@ -97,6 +99,11 @@ pub fn run() {
             auth::ms_login_start,
             auth::ms_login_finish,
             auth::ms_login_cancel,
+            elysium::elysium_account,
+            elysium::elysium_refresh,
+            elysium::elysium_login,
+            elysium::elysium_logout,
+            elysium::elysium_open_page,
             launch::launch_game,
             launch::reinstall_files,
             launch::stop_game,

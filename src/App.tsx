@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { api, errorText, events } from "./api";
 import { AnimatedBackground } from "./components/AnimatedBackground";
 import { CrashDialog } from "./components/CrashDialog";
+import { ElysiumAccountDialog } from "./components/ElysiumAccountDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
@@ -13,6 +14,7 @@ import { PlayPage } from "./pages/PlayPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { useAccounts } from "./store/accounts";
 import { useConsole } from "./store/console";
+import { useElysium } from "./store/elysium";
 import { useLaunch } from "./store/launch";
 import { useNav } from "./store/nav";
 import { useSettings } from "./store/settings";
@@ -35,6 +37,8 @@ export default function App() {
     Promise.all([useSettings.getState().load(), useAccounts.getState().load(), useUpdater.getState().load()]).catch((e) =>
       toast.error(errorText(e)),
     );
+    // The Elysium account is optional: a failure here never blocks the launcher.
+    useElysium.getState().load().catch(() => {});
     // A game may still be running if the webview was reloaded.
     api.isBusy().then((busy) => busy && useLaunch.setState({ phase: "running" }));
 
@@ -76,6 +80,7 @@ export default function App() {
       </div>
       <Toasts />
       <CrashDialog />
+      <ElysiumAccountDialog />
     </div>
   );
 }
