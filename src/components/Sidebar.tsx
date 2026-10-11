@@ -1,7 +1,9 @@
 import { motion } from "framer-motion";
-import { Play, Puzzle, Settings, SquareTerminal, Users, type LucideIcon } from "lucide-react";
+import { CircleUserRound, Play, Puzzle, Settings, SquareTerminal, Users, type LucideIcon } from "lucide-react";
 import logo from "../assets/logo.svg";
+import { useElysium } from "../store/elysium";
 import { useLaunch } from "../store/launch";
+import { ElysiumAvatar } from "./ElysiumAccountDialog";
 import { useNav, type Page } from "../store/nav";
 
 const items: { page: Page; icon: LucideIcon; label: string }[] = [
@@ -15,6 +17,7 @@ const items: { page: Page; icon: LucideIcon; label: string }[] = [
 export function Sidebar() {
   const { page, go } = useNav();
   const running = useLaunch((s) => s.phase === "running");
+  const { user, openDialog } = useElysium();
 
   return (
     <nav className="sidebar glass">
@@ -40,6 +43,14 @@ export function Sidebar() {
           </button>
         ))}
       </div>
+      <button
+        className="sidebar-item sidebar-account"
+        onClick={openDialog}
+        aria-label={user ? `Аккаунт Elysium: ${user.username}` : "Войти в аккаунт Elysium"}
+      >
+        {user ? <ElysiumAvatar user={user} size={30} /> : <CircleUserRound size={22} strokeWidth={1.9} />}
+        <span className="sidebar-tooltip">{user ? user.username : "Аккаунт Elysium"}</span>
+      </button>
     </nav>
   );
 }

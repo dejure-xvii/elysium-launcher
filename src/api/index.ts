@@ -33,6 +33,16 @@ export interface Account {
   skinUrl?: string | null;
 }
 
+/** Elysium site account (not a Minecraft account). */
+export interface ElysiumUser {
+  id: string;
+  username: string;
+  email: string;
+  emailVerified: boolean;
+}
+
+export type ElysiumPage = "register" | "forgot" | "account" | "privacy";
+
 export interface DeviceCode {
   userCode: string;
   deviceCode: string;
@@ -126,6 +136,12 @@ export const api = {
   msLoginStart: () => invoke<DeviceCode>("ms_login_start"),
   msLoginFinish: () => invoke<Account>("ms_login_finish"),
   msLoginCancel: () => invoke<void>("ms_login_cancel"),
+
+  elysiumAccount: () => invoke<ElysiumUser | null>("elysium_account"),
+  elysiumRefresh: () => invoke<ElysiumUser | null>("elysium_refresh"),
+  elysiumLogin: (login: string, password: string) => invoke<ElysiumUser>("elysium_login", { login, password }),
+  elysiumLogout: () => invoke<void>("elysium_logout"),
+  elysiumOpenPage: (page: ElysiumPage) => invoke<void>("elysium_open_page", { page }),
 
   launchGame: () => invoke<void>("launch_game"),
   reinstallFiles: () => invoke<void>("reinstall_files"),

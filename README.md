@@ -12,6 +12,8 @@
 - Нет Java 25 → скачивает портативную Temurin 25 JRE в `%APPDATA%\ElysiumLauncher\runtime`.
 - Проверка по SHA-1, докачивается только недостающее; работает и офлайн, если файлы уже скачаны.
 - Консоль с логами в реальном времени, диалог при краше, автообновление лаунчера.
+- Необязательный аккаунт Elysium (кнопка внизу боковой панели): вход по логину или почте. Регистрация и сброс
+  пароля — на сайте. Не связан с Minecraft-аккаунтами и не нужен для игры; задел под синхронизацию настроек и друзей.
 
 ## Структура
 ```
@@ -24,6 +26,7 @@ src/                      UI (React)
 src-tauri/src/
   config.rs               версии MC/Fabric, Client ID, репозиторий мода
   auth/                   microsoft.rs, xbox.rs, minecraft.rs, offline.rs, store.rs (Credential Manager)
+  elysium/                аккаунт Elysium: api.rs (API сайта /api/v1), mod.rs (сессия, команды)
   download/               параллельная загрузка + SHA-1, manifest, libraries, assets, java
   fabric/                 профиль Fabric, Fabric API, установка мода
   mods/                   моды по умолчанию: список, Modrinth, зависимости, синхронизация mods/
@@ -126,6 +129,10 @@ Debug-сборка читает список из соседней папки `e
 | `TAURI_SIGNING_PRIVATE_KEY` | содержимое `~/.tauri/elysium-launcher.key` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | пароль к ключу (`~/.tauri/elysium-launcher.key.password`) |
 | `ELYSIUM_MS_CLIENT_ID` | необязательно: Azure Client ID для входа через Microsoft |
+| `ELYSIUM_SITE_URL` | необязательно: адрес сайта Elysium (аккаунты), по умолчанию `https://elysium-visuals.elysium-site.workers.dev` |
+
+Аккаунт Elysium против локального сайта (`npm run dev` в elysium-site): `$env:ELYSIUM_SITE_URL="http://127.0.0.1:8790"; npm run tauri dev`.
+Release-сборки принимают только `https://`.
 
 > Приватный ключ есть только у вас и в секретах GitHub. Если его потерять, установленные
 > лаунчеры не смогут принять обновления — сохраните резервную копию.
@@ -136,5 +143,6 @@ Debug-сборка читает список из соседней папки `e
 | Настройки, список аккаунтов | `%APPDATA%\ElysiumLauncher\settings.json`, `accounts.json` |
 | Refresh-токены Microsoft | Диспетчер учётных данных Windows (`ElysiumLauncher` / `msa:<uuid>`) |
 | Токены доступа Minecraft | только в памяти, в логах консоли скрываются |
+| Сессия аккаунта Elysium | Диспетчер учётных данных Windows (`ElysiumLauncher` / `elysium:session`); профиль без секретов — `elysium-account.json` |
 | Java | `%APPDATA%\ElysiumLauncher\runtime\temurin-25` |
 | Игра | `%APPDATA%\.elysium` (меняется в настройках) |
