@@ -172,7 +172,7 @@ fn cached_list_file() -> PathBuf {
 #[cfg(debug_assertions)]
 fn dev_list() -> Option<String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../elysium-visuals-template-26.2/default-mods.json");
+        .join("../../elysium-visuals/default-mods.json");
     std::fs::read_to_string(path).ok()
 }
 
