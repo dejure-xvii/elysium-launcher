@@ -10,7 +10,7 @@ use crate::download::http_client;
 use crate::error::{Error, Result};
 
 /// Public profile returned by the API. No secrets.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub id: String,
