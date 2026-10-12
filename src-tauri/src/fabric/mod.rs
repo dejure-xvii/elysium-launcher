@@ -95,7 +95,7 @@ pub async fn fabric_api_task(client: &reqwest::Client, game_dir: &Path) -> Resul
         _ => None,
     };
     remove_other_versions(&mods_dir(game_dir), "fabric-api-", &file)?;
-    Ok(DownloadTask { url, path, sha1, sha512: None, size: None })
+    Ok(DownloadTask { url, path, sha1, sha512: None, sha256: None, size: None })
 }
 
 pub async fn install_fabric_api(client: &reqwest::Client, game_dir: &Path) -> Result<()> {

@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { CloudOff, LoaderCircle } from "lucide-react";
 import { useEffect } from "react";
 import { api, errorText, events } from "./api";
 import { AnimatedBackground } from "./components/AnimatedBackground";
 import { CrashDialog } from "./components/CrashDialog";
-import { ElysiumAccountDialog } from "./components/ElysiumAccountDialog";
+import { LoginScreen } from "./components/LoginScreen";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
@@ -32,13 +33,14 @@ const pages = {
 export default function App() {
   const page = useNav((s) => s.page);
   const Page = pages[page];
+  const elysium = useElysium((s) => s.status);
 
   useEffect(() => {
     Promise.all([useSettings.getState().load(), useAccounts.getState().load(), useUpdater.getState().load()]).catch((e) =>
       toast.error(errorText(e)),
     );
-    // The Elysium account is optional: a failure here never blocks the launcher.
-    useElysium.getState().load().catch(() => {});
+    // The Elysium account is required: a quiet session check picks the launcher or the sign-in screen.
+    useElysium.getState().load();
     // A game may still be running if the webview was reloaded.
     api.isBusy().then((busy) => busy && useLaunch.setState({ phase: "running" }));
 
@@ -48,6 +50,7 @@ export default function App() {
       events.onExit((x) => useLaunch.getState().onExit(x)),
       events.onAccountsChanged(() => useAccounts.getState().load()),
       events.onLauncherUpdate((s) => useUpdater.getState().onEvent(s)),
+      events.onElysiumSignedOut(() => useElysium.getState().signedOut()),
     ];
     const block = (e: MouseEvent) => e.preventDefault();
     window.addEventListener("contextmenu", block);
@@ -61,26 +64,38 @@ export default function App() {
     <div className="app">
       <AnimatedBackground />
       <TitleBar />
-      <div className="layout">
-        <Sidebar />
-        <main className="content">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={page}
-              className="page-host"
-              initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
-              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <Page />
-            </motion.div>
-          </AnimatePresence>
-        </main>
-      </div>
+      {elysium === null ? (
+        <div className="login-screen">
+          <LoaderCircle size={28} className="spin muted" />
+        </div>
+      ) : elysium.state === "signedOut" || elysium.state === "unreachable" ? (
+        <LoginScreen />
+      ) : (
+        <div className="layout">
+          <Sidebar />
+          <main className="content">
+            {elysium.state === "offline" && (
+              <div className="offline-banner glass small">
+                <CloudOff size={15} /> Сервер аккаунтов недоступен — играем офлайн
+              </div>
+            )}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={page}
+                className="page-host"
+                initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <Page />
+              </motion.div>
+            </AnimatePresence>
+          </main>
+        </div>
+      )}
       <Toasts />
       <CrashDialog />
-      <ElysiumAccountDialog />
     </div>
   );
 }

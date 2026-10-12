@@ -1,38 +1,45 @@
 import { create } from "zustand";
-import { api, type ElysiumUser } from "../api";
+import { api, type ElysiumStatus, type ElysiumUser } from "../api";
 
-/** Elysium site account. Optional and independent of the Minecraft accounts in `accounts.ts`. */
+/** Elysium site account. Required to play, independent of the Minecraft accounts in `accounts.ts`. */
 interface ElysiumStore {
-  user: ElysiumUser | null;
-  dialogOpen: boolean;
-  /** Cached profile first, then a server check (signs out if the session was revoked). */
+  /** `null` until the first check finishes. */
+  status: ElysiumStatus | null;
+  /** Quiet session check on start (signs out if the session was revoked). */
   load: () => Promise<void>;
   login: (login: string, password: string) => Promise<ElysiumUser>;
   logout: () => Promise<void>;
-  openDialog: () => void;
-  closeDialog: () => void;
+  /** The backend found the session revoked (e.g. while starting the game). */
+  signedOut: () => void;
 }
 
 export const useElysium = create<ElysiumStore>((set) => ({
-  user: null,
-  dialogOpen: false,
+  status: null,
 
   load: async () => {
-    set({ user: await api.elysiumAccount() });
-    set({ user: await api.elysiumRefresh() });
+    try {
+      set({ status: await api.elysiumRefresh() });
+    } catch {
+      set({ status: { state: "unreachable" } });
+    }
   },
 
   login: async (login, password) => {
-    const user = await api.elysiumLogin(login, password);
-    set({ user });
-    return user;
+    const status = await api.elysiumLogin(login, password);
+    set({ status });
+    if (status.state !== "online") throw new Error("Не удалось войти");
+    return status.user;
   },
 
   logout: async () => {
     await api.elysiumLogout();
-    set({ user: null });
+    set({ status: { state: "signedOut" } });
   },
 
-  openDialog: () => set({ dialogOpen: true }),
-  closeDialog: () => set({ dialogOpen: false }),
+  signedOut: () => set({ status: { state: "signedOut" } }),
 }));
+
+/** The signed-in Elysium user, when the launcher may be used. */
+export function useElysiumUser(): ElysiumUser | null {
+  return useElysium((s) => (s.status?.state === "online" || s.status?.state === "offline" ? s.status.user : null));
+}

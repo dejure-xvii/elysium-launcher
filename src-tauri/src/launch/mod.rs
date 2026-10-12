@@ -94,6 +94,7 @@ pub async fn prepare(
             sha1: a.sha1.clone(),
             size: a.size,
             sha512: None,
+            sha256: None,
         })
         .ok_or_else(|| Error::msg("В описании версии нет клиента"))?;
     let client_jar = client_task.path.clone();
@@ -196,11 +197,11 @@ fn build_command(p: &Prepared, s: &Settings, auth: &LaunchAuth, game_dir: &Path)
 }
 
 /// Elysium Social sign-in for the game: a one-time ticket in the environment (and the server address in
-/// dev builds). Without an Elysium account, or when the site is unreachable, the game starts without it.
+/// dev builds). When the site is unreachable (offline grace), the game starts without it.
 async fn social_env(app: &AppHandle) -> (Vec<(&'static str, String)>, Vec<String>) {
     let mut env = Vec::new();
     let mut secrets = Vec::new();
-    match elysium::game_ticket(&app.state::<ElysiumState>()).await {
+    match elysium::game_ticket(app, &app.state::<ElysiumState>()).await {
         Ok(Some(ticket)) => {
             secrets.push(ticket.clone());
             env.push((process::SOCIAL_TICKET_ENV, ticket));
@@ -225,6 +226,9 @@ pub async fn launch_game(
     launch: State<'_, LaunchState>,
     settings: State<'_, SettingsState>,
 ) -> Result<()> {
+    if !app.state::<ElysiumState>().can_play() {
+        return Err(Error::msg("Войдите в аккаунт Elysium, чтобы играть"));
+    }
     let mut guard = acquire(&launch)?;
     let s = settings.0.lock().unwrap().clone();
     let game_dir = s.game_dir();

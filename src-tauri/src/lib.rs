@@ -99,7 +99,6 @@ pub fn run() {
             auth::ms_login_start,
             auth::ms_login_finish,
             auth::ms_login_cancel,
-            elysium::elysium_account,
             elysium::elysium_refresh,
             elysium::elysium_login,
             elysium::elysium_logout,

@@ -13,7 +13,7 @@ export interface Settings {
   jvmArgs: string;
   afterLaunch: AfterLaunch;
   selectedAccount: string | null;
-  /** Modrinth project ids of optional built-in mods that are switched off. */
+  /** Ids (Modrinth project or `github:owner/repo`) of optional built-in mods that are switched off. */
   disabledMods: string[];
 }
 
@@ -40,6 +40,13 @@ export interface ElysiumUser {
   email: string | null;
   emailVerified: boolean;
 }
+
+/** Whether the launcher may be used (Elysium account is required to play). */
+export type ElysiumStatus =
+  | { state: "online"; user: ElysiumUser }
+  | { state: "offline"; user: ElysiumUser; lastVerifiedAt: number }
+  | { state: "signedOut" }
+  | { state: "unreachable" };
 
 export type ElysiumPage = "register" | "forgot" | "account" | "privacy";
 
@@ -111,6 +118,9 @@ export interface BuiltinMod {
   /** Mods that need this one (set for dependencies). */
   dependencyOf: string[];
   replacedByUser: boolean;
+  /** Credit and project page for third-party mods from GitHub. */
+  author: string | null;
+  page: string | null;
 }
 
 export interface UserMod {
@@ -137,9 +147,8 @@ export const api = {
   msLoginFinish: () => invoke<Account>("ms_login_finish"),
   msLoginCancel: () => invoke<void>("ms_login_cancel"),
 
-  elysiumAccount: () => invoke<ElysiumUser | null>("elysium_account"),
-  elysiumRefresh: () => invoke<ElysiumUser | null>("elysium_refresh"),
-  elysiumLogin: (login: string, password: string) => invoke<ElysiumUser>("elysium_login", { login, password }),
+  elysiumRefresh: () => invoke<ElysiumStatus>("elysium_refresh"),
+  elysiumLogin: (login: string, password: string) => invoke<ElysiumStatus>("elysium_login", { login, password }),
   elysiumLogout: () => invoke<void>("elysium_logout"),
   elysiumOpenPage: (page: ElysiumPage) => invoke<void>("elysium_open_page", { page }),
 
@@ -175,6 +184,8 @@ export const events = {
     listen<UpdaterStatus>("launcher-update", (e) => cb(e.payload)),
   onAccountsChanged: (cb: () => void): Promise<UnlistenFn> =>
     listen("accounts-changed", () => cb()),
+  onElysiumSignedOut: (cb: () => void): Promise<UnlistenFn> =>
+    listen("elysium-signed-out", () => cb()),
 };
 
 /** Errors from Rust arrive as plain strings. */

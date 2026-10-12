@@ -1,4 +1,4 @@
-import { FolderOpen } from "lucide-react";
+import { ExternalLink, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type BuiltinMod, type ModsView } from "../api";
 import { useLaunch } from "../store/launch";
@@ -24,6 +24,16 @@ function BuiltinRow({ mod, locked, onToggle }: { mod: BuiltinMod; locked: boolea
         </div>
         <div className="mod-meta">
           <span className="badge badge-accent">встроенный</span>
+          {mod.author && <span className="muted small">автор: {mod.author}</span>}
+          {mod.page && (
+            <button
+              type="button"
+              className="link small"
+              onClick={() => api.openUrl(mod.page!).catch((e) => toast.error(errorText(e)))}
+            >
+              страница мода <ExternalLink size={12} />
+            </button>
+          )}
           {dependency ? (
             <span className="muted small">нужен для {mod.dependencyOf.join(", ")}</span>
           ) : (
@@ -76,7 +86,7 @@ export function ModsPage() {
       <section className="section glass">
         <div className="section-head">
           <h3>Встроенные</h3>
-          <span className="muted small">Ставятся с Modrinth, изменения применяются при следующем запуске</span>
+          <span className="muted small">Ставятся с Modrinth и GitHub, изменения применяются при следующем запуске</span>
         </div>
         <div className="mod-list">
           {view?.builtin.map((m) => (
