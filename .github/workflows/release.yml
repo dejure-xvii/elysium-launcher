@@ -38,6 +38,6 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Elysium Launcher v__VERSION__
-          releaseBody: Скачайте `Elysium Launcher_*_x64-setup.exe` и запустите установщик.
+          releaseBody: Скачайте `Elysium.Launcher_*_x64-setup.exe` и запустите установщик.
           releaseDraft: false
           prerelease: false
