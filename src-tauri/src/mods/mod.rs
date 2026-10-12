@@ -1,6 +1,7 @@
 //! Built-in mods from `default-mods.json` (in the mod repository), downloaded
-//! from Modrinth with sha512 checks. Only files the launcher installed itself
-//! (tracked in `.elysium-mods.json`) are ever replaced or removed.
+//! from Modrinth with sha512 checks, or from a GitHub release pinned by tag,
+//! file name and sha256. Only files the launcher installed itself (tracked in
+//! `.elysium-mods.json`) are ever replaced or removed.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::config;
-use crate::download::{self, sha512_file, DownloadTask, Reporter, Verify};
+use crate::download::{self, sha256_file, sha512_file, DownloadTask, Reporter, Verify};
 use crate::error::{Error, Result};
 use crate::fabric;
 use crate::paths;
@@ -24,6 +25,11 @@ pub struct ModList {
     pub minecraft: String,
     pub loader: String,
     pub mods: Vec<ListEntry>,
+    /// Mods that aren't on Modrinth, from GitHub releases. A separate field
+    /// (not entries in `mods`) so that launchers up to 1.3.0, which require
+    /// Modrinth ids for every entry, keep reading the same list.
+    #[serde(default)]
+    pub github: Vec<GithubEntry>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,10 +53,86 @@ impl ListEntry {
     }
 }
 
+/// A mod file attached to a GitHub release: only ever downloaded from that
+/// repository's release and installed if its sha256 matches.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubEntry {
+    pub name: String,
+    /// `owner/repo`.
+    pub repo: String,
+    /// Release tag, e.g. `v1.0.3`.
+    pub tag: String,
+    /// Asset file name in that release.
+    pub file: String,
+    pub sha256: String,
+    /// `id` from the jar's `fabric.mod.json`, to recognise a user's own copy.
+    pub mod_id: String,
+    /// Shown in the Mods tab next to a link to the repository.
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default = "yes")]
+    pub required: bool,
+}
+
+impl GithubEntry {
+    /// Stands in for the Modrinth project id: in `disabledMods`, the state file and the UI.
+    pub fn key(&self) -> String {
+        format!("github:{}", self.repo)
+    }
+
+    fn enabled(&self, disabled: &[String]) -> bool {
+        self.required || !disabled.contains(&self.key())
+    }
+
+    fn page(&self) -> String {
+        format!("{}{}", config::GITHUB_URL, self.repo)
+    }
+
+    fn url(&self) -> String {
+        format!("{}/releases/download/{}/{}", self.page(), self.tag, self.file)
+    }
+
+    fn is_valid(&self) -> bool {
+        let label = |s: &str| !s.trim().is_empty() && s.chars().count() <= 64 && !s.chars().any(char::is_control);
+        let mod_id = !self.mod_id.is_empty()
+            && self.mod_id.len() <= 64
+            && self.mod_id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+        valid_repo(&self.repo)
+            && valid_path_part(&self.tag)
+            && valid_path_part(&self.file)
+            && self.file.ends_with(".jar")
+            && self.sha256.len() == 64
+            && self.sha256.chars().all(|c| c.is_ascii_hexdigit())
+            && mod_id
+            && label(&self.name)
+            && self.author.as_deref().is_none_or(label)
+    }
+}
+
 /// Modrinth ids are short alphanumeric strings; anything else is rejected so
 /// list contents can't be smuggled into API paths.
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// A tag or file name that goes into a URL path and (file) into `mods/` as is.
+fn valid_path_part(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && !s.starts_with('.')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+'))
+}
+
+/// `owner/repo` as GitHub allows them.
+fn valid_repo(repo: &str) -> bool {
+    let Some((owner, name)) = repo.split_once('/') else { return false };
+    let owner_ok = !owner.is_empty() && owner.len() <= 39 && owner.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    let name_ok = !name.is_empty()
+        && name.len() <= 100
+        && !name.starts_with('.')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    owner_ok && name_ok
 }
 
 fn parse_list(text: &str) -> Result<ModList> {
@@ -68,6 +150,13 @@ fn parse_list(text: &str) -> Result<ModList> {
     }
     if let Some(bad) = list.mods.iter().find(|m| !valid_id(&m.project) || !valid_id(&m.version)) {
         return Err(Error::msg(format!("Некорректный ID в списке модов: {}", bad.name)));
+    }
+    if let Some(bad) = list.github.iter().find(|g| !g.is_valid()) {
+        return Err(Error::msg(format!("Некорректный мод с GitHub в списке модов: {}", bad.name)));
+    }
+    let mut repos = HashSet::new();
+    if let Some(dup) = list.github.iter().find(|g| !repos.insert(g.repo.to_lowercase())) {
+        return Err(Error::msg(format!("Репозиторий {} указан в списке модов дважды", dup.repo)));
     }
     Ok(list)
 }
@@ -246,13 +335,44 @@ pub struct Planned {
     pub name: String,
     pub filename: String,
     pub url: String,
+    /// Empty for GitHub mods, which are checked by `sha256` instead.
     pub sha512: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// 0 when unknown (GitHub mods).
     pub size: u64,
     /// Listed as required (always true for dependencies).
     pub required: bool,
     /// Top-level list entries that pulled this mod in; empty for list entries.
     #[serde(default)]
     pub parents: Vec<String>,
+    /// `fabric.mod.json` id (GitHub mods), to recognise a user's own copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mod_id: Option<String>,
+}
+
+impl Planned {
+    /// The hash `plan` compares against: sha256 for GitHub mods, sha512 otherwise.
+    fn expected_hash(&self) -> &str {
+        self.sha256.as_deref().unwrap_or(&self.sha512)
+    }
+}
+
+fn planned_from_github(g: &GithubEntry) -> Planned {
+    Planned {
+        project: g.key(),
+        version: g.tag.clone(),
+        version_number: g.tag.trim_start_matches('v').to_string(),
+        name: g.name.clone(),
+        filename: g.file.clone(),
+        url: g.url(),
+        sha512: String::new(),
+        sha256: Some(g.sha256.to_lowercase()),
+        size: 0,
+        required: g.required,
+        parents: Vec::new(),
+        mod_id: Some(g.mod_id.clone()),
+    }
 }
 
 fn planned_from(v: &MrVersion, name: &str, required: bool) -> Result<Planned> {
@@ -283,16 +403,18 @@ fn planned_from(v: &MrVersion, name: &str, required: bool) -> Result<Planned> {
         filename: file.filename.clone(),
         url: file.url.clone(),
         sha512: file.hashes.sha512.to_lowercase(),
+        sha256: None,
         size: file.size,
         required,
         parents: Vec::new(),
+        mod_id: None,
     })
 }
 
 /// Turns the list into concrete files: enabled entries at their pinned
 /// versions plus their required dependencies (except Fabric API, which the
 /// launcher installs from Maven). A version pinned in the list wins over the
-/// one a dependency asks for.
+/// one a dependency asks for. Enabled GitHub mods come last, as pinned.
 pub async fn resolve(client: &reqwest::Client, list: &ModList, disabled: &[String]) -> Result<Vec<Planned>> {
     let pinned: HashMap<&str, &ListEntry> = list.mods.iter().map(|m| (m.project.as_str(), m)).collect();
     let top: Vec<&ListEntry> = list
@@ -377,6 +499,13 @@ pub async fn resolve(client: &reqwest::Client, list: &ModList, disabled: &[Strin
             }
         }
     }
+
+    for g in list.github.iter().filter(|g| g.enabled(disabled)) {
+        if out.iter().any(|p| p.filename.eq_ignore_ascii_case(&g.file)) {
+            return Err(Error::msg(format!("Файл {} уже есть среди модов с Modrinth", g.file)));
+        }
+        out.push(planned_from_github(g));
+    }
     Ok(out)
 }
 
@@ -426,13 +555,14 @@ pub struct Actions {
     pub remove: Vec<String>,
 }
 
-/// Decides what to download and delete. `hash_of(file)` is the sha512 of a
-/// file currently in `mods/` (None when missing). A managed file that is no
-/// longer wanted is deleted only if it is still exactly what we installed.
-pub fn plan(state: &[Planned], desired: &[Planned], hash_of: impl Fn(&str) -> Option<String>) -> Actions {
+/// Decides what to download and delete. `hash_of(mod)` is the hash of the
+/// mod's file currently in `mods/` (sha256 for GitHub mods, sha512 otherwise;
+/// None when missing). A managed file that is no longer wanted is deleted only
+/// if it is still exactly what we installed.
+pub fn plan(state: &[Planned], desired: &[Planned], hash_of: impl Fn(&Planned) -> Option<String>) -> Actions {
     let mut actions = Actions::default();
     for d in desired {
-        if hash_of(&d.filename).as_deref() != Some(d.sha512.as_str()) {
+        if hash_of(d).as_deref() != Some(d.expected_hash()) {
             actions.download.push(d.clone());
         }
     }
@@ -440,7 +570,7 @@ pub fn plan(state: &[Planned], desired: &[Planned], hash_of: impl Fn(&str) -> Op
         if desired.iter().any(|d| d.filename == s.filename) {
             continue;
         }
-        if hash_of(&s.filename).as_deref() == Some(s.sha512.as_str()) {
+        if hash_of(s).as_deref() == Some(s.expected_hash()) {
             actions.remove.push(s.filename.clone());
         }
     }
@@ -466,7 +596,8 @@ fn offline_desired(state: &ManagedState, disabled: &[String]) -> Vec<Planned> {
 }
 
 /// Drops built-in mods the user already has as their own jar (matched by
-/// Modrinth project via file hash), so nothing is loaded twice.
+/// Modrinth project via file hash, or for GitHub mods by the `fabric.mod.json`
+/// id), so nothing is loaded twice.
 async fn drop_user_duplicates(
     client: &reqwest::Client,
     game_dir: &Path,
@@ -476,6 +607,7 @@ async fn drop_user_duplicates(
     let managed: HashSet<&str> = state.mods.iter().map(|m| m.filename.as_str()).collect();
     let mut user_hashes = Vec::new();
     let mut user_files = HashSet::new();
+    let mut user_mod_ids = HashSet::new();
     if let Ok(entries) = std::fs::read_dir(mods_dir(game_dir)) {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -484,9 +616,19 @@ async fn drop_user_duplicates(
             }
             if let Ok(h) = sha512_file(&e.path()) {
                 // A user jar that is byte-identical to ours is simply adopted.
-                if !desired.iter().any(|d| d.filename == name && d.sha512 == h) {
+                let ours = desired.iter().any(|d| {
+                    d.filename == name
+                        && match &d.sha256 {
+                            Some(expected) => sha256_file(&e.path()).is_ok_and(|h| h.eq_ignore_ascii_case(expected)),
+                            None => d.sha512 == h,
+                        }
+                });
+                if !ours {
                     user_hashes.push(h);
                     user_files.insert(name);
+                    if let Some(id) = jar_mod_json(&e.path()).and_then(|j| j.get("id")?.as_str().map(str::to_string)) {
+                        user_mod_ids.insert(id);
+                    }
                 }
             }
         }
@@ -495,9 +637,11 @@ async fn drop_user_duplicates(
         .await
         .map(|m| m.into_values().collect())
         .unwrap_or_default();
-    desired
-        .into_iter()
-        .partition(|d| !user_projects.contains(&d.project) && !user_files.contains(&d.filename))
+    desired.into_iter().partition(|d| {
+        !user_projects.contains(&d.project)
+            && !user_files.contains(&d.filename)
+            && !d.mod_id.as_ref().is_some_and(|id| user_mod_ids.contains(id))
+    })
 }
 
 /// Brings `mods/` in line with the list: downloads new/changed built-in mods,
@@ -521,7 +665,11 @@ pub async fn sync(client: &reqwest::Client, game_dir: &Path, disabled: &[String]
         Err(e) => return Err(Error::msg(format!("Не удалось установить моды: {e}"))),
     };
 
-    let hash_of = |f: &str| sha512_file(&mods.join(f)).ok().map(|h| h.to_lowercase());
+    let hash_of = |p: &Planned| {
+        let path = mods.join(&p.filename);
+        let hash = if p.sha256.is_some() { sha256_file(&path) } else { sha512_file(&path) };
+        hash.ok().map(|h| h.to_lowercase())
+    };
     let actions = plan(&state.mods, &desired, hash_of);
 
     let tasks: Vec<DownloadTask> = actions
@@ -531,8 +679,9 @@ pub async fn sync(client: &reqwest::Client, game_dir: &Path, disabled: &[String]
             url: p.url.clone(),
             path: mods.join(&p.filename),
             sha1: None,
-            sha512: Some(p.sha512.clone()),
-            size: Some(p.size),
+            sha512: p.sha256.is_none().then(|| p.sha512.clone()),
+            sha256: p.sha256.clone(),
+            size: (p.size > 0).then_some(p.size),
         })
         .collect();
     if !tasks.is_empty() {
@@ -554,7 +703,7 @@ pub async fn sync(client: &reqwest::Client, game_dir: &Path, disabled: &[String]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuiltinMod {
-    /// Modrinth project id, or a fixed key for Elysium Visuals / Fabric API.
+    /// Modrinth project id, `github:owner/repo`, or a fixed key for Elysium Visuals / Fabric API.
     pub id: String,
     pub name: String,
     pub version: Option<String>,
@@ -565,6 +714,9 @@ pub struct BuiltinMod {
     pub dependency_of: Vec<String>,
     /// The user has their own copy, so the built-in one isn't installed.
     pub replaced_by_user: bool,
+    /// Credit and project page for third-party mods from GitHub.
+    pub author: Option<String>,
+    pub page: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -602,6 +754,8 @@ fn build_view(game_dir: &Path, list: Option<&ModList>, disabled: &[String]) -> M
             installed: installed(config::MOD_FILE_NAME),
             dependency_of: Vec::new(),
             replaced_by_user: false,
+            author: None,
+            page: None,
         },
         BuiltinMod {
             id: config::FABRIC_API_PROJECT.into(),
@@ -612,6 +766,8 @@ fn build_view(game_dir: &Path, list: Option<&ModList>, disabled: &[String]) -> M
             installed: installed(&format!("fabric-api-{}.jar", config::FABRIC_API_VERSION)),
             dependency_of: Vec::new(),
             replaced_by_user: false,
+            author: None,
+            page: None,
         },
     ];
 
@@ -631,6 +787,27 @@ fn build_view(game_dir: &Path, list: Option<&ModList>, disabled: &[String]) -> M
             installed: managed.is_some_and(|s| installed(&s.filename)),
             dependency_of: managed.map(|s| s.parents.iter().map(|p| name_of(p)).collect()).unwrap_or_default(),
             replaced_by_user: replaced,
+            author: None,
+            page: None,
+        });
+    }
+    for g in list.map(|l| l.github.as_slice()).unwrap_or_default() {
+        let key = g.key();
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let managed = state.mods.iter().find(|s| s.project == key);
+        builtin.push(BuiltinMod {
+            id: key.clone(),
+            name: g.name.clone(),
+            version: managed.map(|s| s.version_number.clone()),
+            required: g.required,
+            enabled: g.enabled(disabled),
+            installed: managed.is_some_and(|s| installed(&s.filename)),
+            dependency_of: Vec::new(),
+            replaced_by_user: state.replaced.iter().any(|s| s.project == key),
+            author: g.author.clone(),
+            page: Some(g.page()),
         });
     }
     // Dependencies that aren't in the list themselves.
@@ -647,6 +824,8 @@ fn build_view(game_dir: &Path, list: Option<&ModList>, disabled: &[String]) -> M
             installed: installed(&s.filename),
             dependency_of: s.parents.iter().map(|p| name_of(p)).collect(),
             replaced_by_user: state.replaced.iter().any(|r| r.project == s.project),
+            author: None,
+            page: None,
         });
     }
 
@@ -688,13 +867,15 @@ pub async fn set_mod_enabled(settings: State<'_, SettingsState>, id: String, ena
         Some(l) => l,
         None => load_list(&download::http_client()).await?,
     };
-    let entry = list
+    let (name, required) = list
         .mods
         .iter()
         .find(|m| m.project == id)
+        .map(|m| (&m.name, m.required))
+        .or_else(|| list.github.iter().find(|g| g.key() == id).map(|g| (&g.name, g.required)))
         .ok_or_else(|| Error::msg("Это не встроенный мод"))?;
-    if entry.required {
-        return Err(Error::msg(format!("{} — обязательный мод, его нельзя выключить", entry.name)));
+    if required {
+        return Err(Error::msg(format!("{name} — обязательный мод, его нельзя выключить")));
     }
     let mut s = settings.0.lock().unwrap().clone();
     s.disabled_mods.retain(|p| p != &id);
@@ -719,14 +900,32 @@ mod tests {
             filename: file.into(),
             url: format!("https://cdn.modrinth.com/{file}"),
             sha512: hash.into(),
+            sha256: None,
             size: 1,
             required: true,
             parents: Vec::new(),
+            mod_id: None,
         }
     }
 
-    fn files<'a>(list: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
-        move |f| list.iter().find(|(n, _)| *n == f).map(|(_, h)| h.to_string())
+    /// `hash_of` for `plan`: the hash of each file present in `mods/`.
+    fn files<'a>(list: &'a [(&'a str, &'a str)]) -> impl Fn(&Planned) -> Option<String> + 'a {
+        move |p: &Planned| list.iter().find(|(n, _)| *n == p.filename).map(|(_, h)| h.to_string())
+    }
+
+    const ZAKO_SHA256: &str = "72c3b9d04fefa3ea4bf01a667736508e03bd60d987c390696cface9853e2bf0d";
+
+    fn zako() -> GithubEntry {
+        GithubEntry {
+            name: "ZakoOpt".into(),
+            repo: "3ako/ZakoOpt".into(),
+            tag: "v1.0.3".into(),
+            file: "zakoopt-1.0.3+26.2.jar".into(),
+            sha256: ZAKO_SHA256.into(),
+            mod_id: "zakoopt".into(),
+            author: Some("Zako".into()),
+            required: false,
+        }
     }
 
     #[test]
@@ -800,6 +999,102 @@ mod tests {
         assert!(list.mods[0].required, "required defaults to true");
         assert!(parse_list(&ok.replace("26.2", "1.21")).is_err());
         assert!(parse_list(&ok.replace("xJZxADzI", "../evil")).is_err());
+        assert!(list.github.is_empty(), "lists without GitHub mods still parse");
+    }
+
+    #[test]
+    fn github_list_validation() {
+        let with = |g: &GithubEntry| {
+            let entry = serde_json::to_string(g).unwrap();
+            format!(r#"{{"schema":1,"minecraft":"26.2","loader":"fabric","mods":[],"github":[{entry}]}}"#)
+        };
+        let list = parse_list(&with(&zako())).unwrap();
+        assert_eq!(list.github[0].key(), "github:3ako/ZakoOpt");
+        assert!(!list.github[0].required);
+        let required_default = with(&zako()).replace(r#","required":false"#, "");
+        assert!(parse_list(&required_default).unwrap().github[0].required, "required defaults to true");
+
+        let bad = |f: fn(&mut GithubEntry)| {
+            let mut g = zako();
+            f(&mut g);
+            parse_list(&with(&g)).is_err()
+        };
+        assert!(bad(|g| g.repo = "3ako".into()));
+        assert!(bad(|g| g.repo = "3ako/ZakoOpt/releases".into()));
+        assert!(bad(|g| g.repo = "../ZakoOpt".into()));
+        assert!(bad(|g| g.repo = "3ako/..".into()));
+        assert!(bad(|g| g.tag = "v1.0.3/../../x".into()));
+        assert!(bad(|g| g.tag = "v1.0.3?x=1".into()));
+        assert!(bad(|g| g.file = "../zakoopt.jar".into()));
+        assert!(bad(|g| g.file = "zakoopt.zip".into()));
+        assert!(bad(|g| g.file = "zako opt.jar".into()));
+        assert!(bad(|g| g.file = ".jar".into()));
+        assert!(bad(|g| g.sha256 = ZAKO_SHA256[..63].into()));
+        assert!(bad(|g| g.sha256 = ZAKO_SHA256.replace('7', "z")));
+        assert!(bad(|g| g.mod_id = "Zako Opt".into()));
+        assert!(bad(|g| g.name = " ".into()));
+        assert!(bad(|g| g.author = Some("Zako\n".into())));
+
+        let twice = with(&zako()).replace("]}", &format!(",{}]}}", serde_json::to_string(&zako()).unwrap()));
+        assert!(parse_list(&twice).is_err(), "same repository twice");
+    }
+
+    #[test]
+    fn github_mod_is_planned_from_its_release() {
+        let p = planned_from_github(&zako());
+        assert_eq!(p.url, "https://github.com/3ako/ZakoOpt/releases/download/v1.0.3/zakoopt-1.0.3+26.2.jar");
+        assert_eq!(p.project, "github:3ako/ZakoOpt");
+        assert_eq!(p.version_number, "1.0.3");
+        assert_eq!(p.sha256.as_deref(), Some(ZAKO_SHA256));
+        assert_eq!(p.mod_id.as_deref(), Some("zakoopt"));
+        assert!(!p.required);
+
+        let mut upper = zako();
+        upper.sha256 = ZAKO_SHA256.to_uppercase();
+        assert_eq!(planned_from_github(&upper).sha256.as_deref(), Some(ZAKO_SHA256));
+    }
+
+    #[test]
+    fn github_mod_is_checked_by_sha256() {
+        let zako = planned_from_github(&zako());
+        let file = zako.filename.as_str();
+        // Present with the pinned hash: nothing to do.
+        let a = plan(&[zako.clone()], &[zako.clone()], files(&[(file, ZAKO_SHA256)]));
+        assert_eq!(a, Actions::default());
+        // Missing or changed: downloaded again.
+        assert_eq!(plan(&[], &[zako.clone()], files(&[])).download, vec![zako.clone()]);
+        assert_eq!(plan(&[zako.clone()], &[zako.clone()], files(&[(file, "other")])).download, vec![zako.clone()]);
+        // Switched off: removed only if it is still our file.
+        assert_eq!(plan(&[zako.clone()], &[], files(&[(file, ZAKO_SHA256)])).remove, vec![file.to_string()]);
+        assert!(plan(&[zako.clone()], &[], files(&[(file, "edited")])).remove.is_empty());
+    }
+
+    #[test]
+    fn offline_drops_disabled_github_mod() {
+        let zako = planned_from_github(&zako());
+        let state = ManagedState { mods: vec![p("menu", "menu.jar", "1"), zako.clone()], replaced: vec![] };
+        assert_eq!(offline_desired(&state, &[]).len(), 2);
+        let kept: Vec<String> =
+            offline_desired(&state, &[zako.project.clone()]).into_iter().map(|m| m.project).collect();
+        assert_eq!(kept, vec!["menu"]);
+    }
+
+    #[test]
+    fn github_mod_in_mods_tab() {
+        let dir = std::env::temp_dir().join(format!("elysium-mods-view-{}", std::process::id()));
+        let list = ModList {
+            schema: 1,
+            minecraft: config::MINECRAFT_VERSION.into(),
+            loader: "fabric".into(),
+            mods: vec![],
+            github: vec![zako()],
+        };
+        let view = build_view(&dir, Some(&list), &["github:3ako/ZakoOpt".into()]);
+        let m = view.builtin.iter().find(|m| m.id == "github:3ako/ZakoOpt").expect("ZakoOpt listed");
+        assert_eq!(m.name, "ZakoOpt");
+        assert!(!m.required && !m.enabled && !m.installed);
+        assert_eq!(m.author.as_deref(), Some("Zako"));
+        assert_eq!(m.page.as_deref(), Some("https://github.com/3ako/ZakoOpt"));
     }
 
     /// Debug builds read the sibling mod project's list.
@@ -826,15 +1121,61 @@ mod net_tests {
         let all = rt.block_on(resolve(&client, &list, &[])).expect("resolve");
         for m in &all {
             println!("{} {} {} parents={:?}", m.name, m.version_number, m.filename, m.parents);
-            assert!(m.url.starts_with(config::MODRINTH_CDN_PREFIX));
-            assert_eq!(m.sha512.len(), 128);
+            if m.sha256.is_some() {
+                assert!(m.url.starts_with(config::GITHUB_URL));
+            } else {
+                assert!(m.url.starts_with(config::MODRINTH_CDN_PREFIX));
+                assert_eq!(m.sha512.len(), 128);
+            }
         }
         assert!(all.iter().all(|m| m.project != config::FABRIC_API_PROJECT));
         assert!(all.iter().any(|m| m.project == "eXts2L7r"), "Text Placeholder API pulled in by Mod Menu");
-        assert_eq!(all.len(), list.mods.len() + 1);
+        assert_eq!(all.len(), list.mods.len() + list.github.len() + 1);
 
         let without_iris = rt.block_on(resolve(&client, &list, &["YL57xq9U".into()])).expect("resolve");
         assert!(without_iris.iter().all(|m| m.project != "YL57xq9U"));
+    }
+
+    /// Downloads ZakoOpt from its GitHub release and checks the pinned sha256;
+    /// a wrong hash must leave nothing behind.
+    /// `cargo test github_mod_download -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn github_mod_download() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = download::http_client();
+        let dir = std::env::temp_dir().join(format!("elysium-github-mod-{}", std::process::id()));
+        let entry = GithubEntry {
+            name: "ZakoOpt".into(),
+            repo: "3ako/ZakoOpt".into(),
+            tag: "v1.0.3".into(),
+            file: "zakoopt-1.0.3+26.2.jar".into(),
+            sha256: "72c3b9d04fefa3ea4bf01a667736508e03bd60d987c390696cface9853e2bf0d".into(),
+            mod_id: "zakoopt".into(),
+            author: Some("Zako".into()),
+            required: false,
+        };
+        let p = planned_from_github(&entry);
+        let task = |sha256: &str| DownloadTask {
+            url: p.url.clone(),
+            path: dir.join(&p.filename),
+            sha1: None,
+            sha512: None,
+            sha256: Some(sha256.into()),
+            size: None,
+        };
+
+        rt.block_on(download::fetch(&client, &task(&entry.sha256))).expect("download");
+        let jar = dir.join(&p.filename);
+        assert_eq!(sha256_file(&jar).unwrap(), entry.sha256);
+        assert_eq!(jar_mod_json(&jar).unwrap()["id"], "zakoopt");
+        assert!(download::is_valid(&task(&entry.sha256), Verify::Full));
+        assert!(!download::is_valid(&task(&"0".repeat(64)), Verify::Full));
+
+        std::fs::remove_file(&jar).unwrap();
+        assert!(rt.block_on(download::fetch(&client, &task(&"0".repeat(64)))).is_err());
+        assert!(!jar.exists() && !jar.with_extension("part").exists(), "rejected file not kept");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -904,6 +1245,16 @@ mod sync_tests {
             .filter(|e| e.file_name().to_string_lossy().starts_with("fabric-api"))
             .count();
         assert_eq!(fabric_api_count, 1, "single Fabric API");
+
+        // Optional GitHub mods (ZakoOpt): removed when switched off, back with the pinned file.
+        if let Some(g) = cached_list().and_then(|l| l.github.into_iter().find(|g| !g.required)) {
+            let jar = mods.join(&g.file);
+            assert!(jar.is_file(), "{} installed", g.name);
+            run(&[g.key()]);
+            assert!(!jar.exists(), "{} removed", g.name);
+            run(&[]);
+            assert_eq!(sha256_file(&jar).unwrap(), g.sha256.to_lowercase());
+        }
 
         // What the Mods tab shows.
         let view = build_view(&game_dir, cached_list().as_ref(), &["YL57xq9U".into()]);

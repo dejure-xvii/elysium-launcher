@@ -45,6 +45,7 @@ pub async fn resolve(
         sha1: index_ref.sha1.clone(),
         size: index_ref.size,
         sha512: None,
+        sha256: None,
     };
     if !is_valid(&task, Verify::Full) {
         // Keep working offline if a cached index exists.
@@ -70,6 +71,7 @@ pub async fn resolve(
                 sha1: Some(o.hash.clone()),
                 size: Some(o.size),
                 sha512: None,
+                sha256: None,
             }
         })
         .collect();

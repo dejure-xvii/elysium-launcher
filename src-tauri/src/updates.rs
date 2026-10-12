@@ -114,6 +114,7 @@ async fn download_mod(client: &reqwest::Client, r: &GhRelease) -> Result<()> {
         sha1: None,
         size: Some(asset.size),
         sha512: None,
+        sha256: None,
     };
     fetch(client, &task).await
 }

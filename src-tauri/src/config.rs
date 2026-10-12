@@ -56,12 +56,15 @@ pub const MOD_FILE_PREFIX: &str = "elysium-visuals";
 
 pub const USER_AGENT: &str = concat!("ElysiumLauncher/", env!("CARGO_PKG_VERSION"));
 
-/// List of mods installed alongside the client (Modrinth project/version ids).
+/// List of mods installed alongside the client (Modrinth project/version ids,
+/// plus pinned files from GitHub releases).
 pub const DEFAULT_MODS_URL: &str =
     "https://raw.githubusercontent.com/dejure-xvii/elysium-visuals/main/default-mods.json";
 pub const MODRINTH_API_URL: &str = "https://api.modrinth.com/v2";
 /// Only files from this host are downloaded for Modrinth mods.
 pub const MODRINTH_CDN_PREFIX: &str = "https://cdn.modrinth.com/";
+/// GitHub mods are downloaded from `{GITHUB_URL}{owner/repo}/releases/download/…` only.
+pub const GITHUB_URL: &str = "https://github.com/";
 /// Fabric API is installed from Maven (`FABRIC_API_VERSION`), never from Modrinth.
 pub const FABRIC_API_PROJECT: &str = "P7dR8mSH";
 /// ffmpeg for the mod's Replay (installed only when the mod asks for it):

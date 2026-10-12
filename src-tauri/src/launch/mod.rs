@@ -94,6 +94,7 @@ pub async fn prepare(
             sha1: a.sha1.clone(),
             size: a.size,
             sha512: None,
+            sha256: None,
         })
         .ok_or_else(|| Error::msg("В описании версии нет клиента"))?;
     let client_jar = client_task.path.clone();

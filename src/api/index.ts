@@ -13,7 +13,7 @@ export interface Settings {
   jvmArgs: string;
   afterLaunch: AfterLaunch;
   selectedAccount: string | null;
-  /** Modrinth project ids of optional built-in mods that are switched off. */
+  /** Ids (Modrinth project or `github:owner/repo`) of optional built-in mods that are switched off. */
   disabledMods: string[];
 }
 
@@ -111,6 +111,9 @@ export interface BuiltinMod {
   /** Mods that need this one (set for dependencies). */
   dependencyOf: string[];
   replacedByUser: boolean;
+  /** Credit and project page for third-party mods from GitHub. */
+  author: string | null;
+  page: string | null;
 }
 
 export interface UserMod {

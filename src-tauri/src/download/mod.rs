@@ -13,7 +13,7 @@ use std::time::Duration;
 use futures::{stream, StreamExt, TryStreamExt};
 use serde::Serialize;
 use sha1::{Digest, Sha1};
-use sha2::Sha512;
+use sha2::{Sha256, Sha512};
 use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 
@@ -37,6 +37,7 @@ pub struct DownloadTask {
     pub path: PathBuf,
     pub sha1: Option<String>,
     pub sha512: Option<String>,
+    pub sha256: Option<String>,
     pub size: Option<u64>,
 }
 
@@ -101,6 +102,13 @@ pub fn sha512_file(path: &Path) -> std::io::Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+pub fn sha256_file(path: &Path) -> std::io::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
 /// Whether `task.path` already holds the expected file.
 pub fn is_valid(task: &DownloadTask, verify: Verify) -> bool {
     let Ok(meta) = std::fs::metadata(&task.path) else { return false };
@@ -111,6 +119,11 @@ pub fn is_valid(task: &DownloadTask, verify: Verify) -> bool {
         if meta.len() != size {
             return false;
         }
+    }
+    if let (Some(expected), Verify::Full) = (&task.sha256, verify) {
+        return sha256_file(&task.path)
+            .map(|h| h.eq_ignore_ascii_case(expected))
+            .unwrap_or(false);
     }
     match (&task.sha512, &task.sha1, verify) {
         (Some(expected), _, Verify::Full) => sha512_file(&task.path)
@@ -134,10 +147,14 @@ async fn fetch_once(client: &reqwest::Client, task: &DownloadTask) -> Result<()>
     let mut file = tokio::fs::File::create(&part).await?;
     let mut hasher = Sha1::new();
     let mut hasher512 = task.sha512.as_ref().map(|_| Sha512::new());
+    let mut hasher256 = task.sha256.as_ref().map(|_| Sha256::new());
     let mut written: u64 = 0;
     while let Some(chunk) = body.try_next().await? {
         hasher.update(&chunk);
         if let Some(h) = hasher512.as_mut() {
+            h.update(&chunk);
+        }
+        if let Some(h) = hasher256.as_mut() {
             h.update(&chunk);
         }
         written += chunk.len() as u64;
@@ -163,6 +180,13 @@ async fn fetch_once(client: &reqwest::Client, task: &DownloadTask) -> Result<()>
         }
     }
     if let (Some(expected), Some(h)) = (&task.sha512, hasher512) {
+        let actual = hex::encode(h.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(Error::msg(format!("Хэш не совпал для {}", task.url)));
+        }
+    }
+    if let (Some(expected), Some(h)) = (&task.sha256, hasher256) {
         let actual = hex::encode(h.finalize());
         if !actual.eq_ignore_ascii_case(expected) {
             let _ = tokio::fs::remove_file(&part).await;
