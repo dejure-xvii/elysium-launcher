@@ -89,8 +89,11 @@ impl GithubEntry {
         format!("{}{}", config::GITHUB_URL, self.repo)
     }
 
+    /// `+` (allowed in tags and file names) must be percent-encoded: GitHub
+    /// answers 500 to a release download with a raw `+` in the path.
     fn url(&self) -> String {
-        format!("{}/releases/download/{}/{}", self.page(), self.tag, self.file)
+        let enc = |s: &str| s.replace('+', "%2B");
+        format!("{}/releases/download/{}/{}", self.page(), enc(&self.tag), enc(&self.file))
     }
 
     fn is_valid(&self) -> bool {
@@ -1042,7 +1045,7 @@ mod tests {
     #[test]
     fn github_mod_is_planned_from_its_release() {
         let p = planned_from_github(&zako());
-        assert_eq!(p.url, "https://github.com/3ako/ZakoOpt/releases/download/v1.0.3/zakoopt-1.0.3+26.2.jar");
+        assert_eq!(p.url, "https://github.com/3ako/ZakoOpt/releases/download/v1.0.3/zakoopt-1.0.3%2B26.2.jar");
         assert_eq!(p.project, "github:3ako/ZakoOpt");
         assert_eq!(p.version_number, "1.0.3");
         assert_eq!(p.sha256.as_deref(), Some(ZAKO_SHA256));
