@@ -46,20 +46,15 @@ pub const ELYSIUM_SOCIAL_URL: Option<&str> = match option_env!("ELYSIUM_SOCIAL_U
     _ => None,
 };
 
-/// GitHub repository ("owner/repo") whose latest release provides the mod jar.
-/// Launcher updates come from the updater endpoints in `tauri.conf.json`.
-pub const MOD_REPO: &str = "dejure-xvii/elysium-visuals";
-
 /// File name of the mod inside `mods/`.
 pub const MOD_FILE_NAME: &str = "elysium-visuals.jar";
 pub const MOD_FILE_PREFIX: &str = "elysium-visuals";
 
 pub const USER_AGENT: &str = concat!("ElysiumLauncher/", env!("CARGO_PKG_VERSION"));
 
-/// List of mods installed alongside the client (Modrinth project/version ids,
-/// plus pinned files from GitHub releases).
-pub const DEFAULT_MODS_URL: &str =
-    "https://raw.githubusercontent.com/dejure-xvii/elysium-visuals/main/default-mods.json";
+/// List of mods installed alongside the client (Modrinth project/version ids, plus pinned files from
+/// GitHub releases), served by the Elysium server (the mod repository is private).
+pub const DEFAULT_MODS_PATH: &str = "/api/v1/releases/default-mods";
 pub const MODRINTH_API_URL: &str = "https://api.modrinth.com/v2";
 /// Only files from this host are downloaded for Modrinth mods.
 pub const MODRINTH_CDN_PREFIX: &str = "https://cdn.modrinth.com/";

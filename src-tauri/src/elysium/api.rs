@@ -136,6 +136,43 @@ pub async fn me(token: &str) -> Result<Authed<Me>> {
     get::<Me>("me", token).await
 }
 
+/// The current mod release; served only to launcher sessions with an active subscription.
+#[derive(Clone, Deserialize)]
+pub struct ModRelease {
+    pub version: String,
+    pub sha256: String,
+    #[serde(default)]
+    pub notes: String,
+}
+
+pub async fn mod_release(token: &str) -> Result<Authed<ModRelease>> {
+    get::<ModRelease>("releases/mod", token).await
+}
+
+/// Downloads the mod jar to `path`, checked against the release's SHA-256 (a partial or foreign
+/// file never replaces the working one: it is written next to it and moved only when it matches).
+pub async fn download_mod(token: &str, release: &ModRelease, path: &std::path::Path) -> Result<Authed<()>> {
+    let res = http_client().get(endpoint("download/mod")?).bearer_auth(token).send().await.map_err(network_error)?;
+    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Ok(Authed::SignedOut);
+    }
+    if !res.status().is_success() {
+        return Err(api_error(res).await);
+    }
+    let bytes = res.bytes().await.map_err(network_error)?;
+    use sha2::Digest;
+    if hex::encode(sha2::Sha256::digest(&bytes)) != release.sha256.to_lowercase() {
+        return Err(Error::msg("Файл мода повреждён при загрузке — попробуйте ещё раз"));
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("jar.part");
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(Authed::Ok(()))
+}
+
 #[derive(Deserialize)]
 pub struct GameTicket {
     pub ticket: String,
@@ -193,6 +230,9 @@ mod tests {
         assert_eq!(m.user.id, res.user.id);
         assert!(m.user.uid.is_some(), "UID from the server");
         assert!(!m.subscription.active, "a new account has no subscription");
+        // Without a subscription the server gives no mod.
+        let no_mod = mod_release(&res.token).await.err().expect("402 without a subscription").to_string();
+        assert_eq!(no_mod, "Подписка не активна. Купите или активируйте ключ в кабинете.");
 
         logout(&res.token).await.unwrap();
         assert!(matches!(me(&res.token).await.unwrap(), Authed::SignedOut));
