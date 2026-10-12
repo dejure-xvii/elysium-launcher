@@ -19,17 +19,44 @@ pub struct User {
     #[serde(default)]
     pub email: Option<String>,
     pub email_verified: bool,
+    /// Account number by registration date ("Вы пользователь #N"); missing from servers before the subscription.
+    #[serde(default)]
+    pub uid: Option<u64>,
+}
+
+/// Subscription as the server reports it. `expires_at` is Unix ms, `None` with `forever`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Subscription {
+    pub active: bool,
+    pub forever: bool,
+    pub plan: Option<String>,
+    pub expires_at: Option<u64>,
+    pub days_left: Option<u64>,
+}
+
+impl Subscription {
+    /// Whether it still runs at `now` (Unix seconds), judged by the end date alone. Used offline, when
+    /// the server can't say `active`, so the offline grace never outlives the subscription.
+    pub fn valid_at(&self, now: u64) -> bool {
+        self.forever || self.expires_at.is_some_and(|ms| ms / 1000 > now)
+    }
 }
 
 #[derive(Deserialize)]
 pub struct LoginResponse {
     pub token: String,
     pub user: User,
+    #[serde(default)]
+    pub subscription: Subscription,
 }
 
+/// `/me`: the profile and the subscription.
 #[derive(Deserialize)]
-struct MeResponse {
-    user: User,
+pub struct Me {
+    pub user: User,
+    #[serde(default)]
+    pub subscription: Subscription,
 }
 
 /// Outcome of a request that needs a session.
@@ -105,11 +132,8 @@ pub async fn login(login: &str, password: &str) -> Result<LoginResponse> {
     Ok(res.json().await?)
 }
 
-pub async fn me(token: &str) -> Result<Authed<User>> {
-    Ok(match get::<MeResponse>("me", token).await? {
-        Authed::Ok(r) => Authed::Ok(r.user),
-        Authed::SignedOut => Authed::SignedOut,
-    })
+pub async fn me(token: &str) -> Result<Authed<Me>> {
+    get::<Me>("me", token).await
 }
 
 #[derive(Deserialize)]
@@ -165,8 +189,10 @@ mod tests {
 
         let res = login(&name.to_uppercase(), "Launcher#Pass-2026").await.unwrap();
         assert_eq!(res.user.username, name);
-        let Authed::Ok(user) = me(&res.token).await.unwrap() else { panic!("me: signed out") };
-        assert_eq!(user.id, res.user.id);
+        let Authed::Ok(m) = me(&res.token).await.unwrap() else { panic!("me: signed out") };
+        assert_eq!(m.user.id, res.user.id);
+        assert!(m.user.uid.is_some(), "UID from the server");
+        assert!(!m.subscription.active, "a new account has no subscription");
 
         logout(&res.token).await.unwrap();
         assert!(matches!(me(&res.token).await.unwrap(), Authed::SignedOut));

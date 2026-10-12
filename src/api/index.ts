@@ -39,16 +39,28 @@ export interface ElysiumUser {
   username: string;
   email: string | null;
   emailVerified: boolean;
+  /** "Вы пользователь #N"; null from servers before the subscription. */
+  uid: number | null;
 }
 
-/** Whether the launcher may be used (Elysium account is required to play). */
+/** Subscription as the server reports it; `expiresAt` is Unix ms, null with `forever`. */
+export interface ElysiumSubscription {
+  active: boolean;
+  forever: boolean;
+  plan: string | null;
+  expiresAt: number | null;
+  daysLeft: number | null;
+}
+
+/** Whether the launcher may be used (Elysium account with an active subscription is required to play). */
 export type ElysiumStatus =
-  | { state: "online"; user: ElysiumUser }
-  | { state: "offline"; user: ElysiumUser; lastVerifiedAt: number }
+  | { state: "online"; user: ElysiumUser; subscription: ElysiumSubscription }
+  | { state: "offline"; user: ElysiumUser; subscription: ElysiumSubscription; lastVerifiedAt: number }
+  | { state: "inactive"; user: ElysiumUser; subscription: ElysiumSubscription; offline: boolean }
   | { state: "signedOut" }
   | { state: "unreachable" };
 
-export type ElysiumPage = "register" | "forgot" | "account" | "privacy";
+export type ElysiumPage = "register" | "forgot" | "account" | "privacy" | "buy";
 
 export interface DeviceCode {
   userCode: string;

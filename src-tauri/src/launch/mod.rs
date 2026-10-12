@@ -227,7 +227,7 @@ pub async fn launch_game(
     settings: State<'_, SettingsState>,
 ) -> Result<()> {
     if !app.state::<ElysiumState>().can_play() {
-        return Err(Error::msg("Войдите в аккаунт Elysium, чтобы играть"));
+        return Err(Error::msg(app.state::<ElysiumState>().play_error()));
     }
     let mut guard = acquire(&launch)?;
     let s = settings.0.lock().unwrap().clone();
