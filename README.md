@@ -61,7 +61,7 @@ cargo test e2e -- --ignored --nocapture     # полная установка в
 ```
 
 ## Скачать
-Установщик — в [последнем релизе](https://github.com/kirillyalovenko463-hash/elysium-launcher/releases/latest):
+Установщик — в [последнем релизе](https://github.com/dejure-xvii/elysium-launcher/releases/latest):
 `Elysium.Launcher_<версия>_x64-setup.exe`.
 
 ## Сборка установщика .exe локально
