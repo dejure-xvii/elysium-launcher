@@ -177,7 +177,38 @@ fn save_profile(user: &User, subscription: &Subscription) -> Result<()> {
 fn forget(state: &ElysiumState) -> Result<()> {
     state.set(Status::SignedOut);
     let _ = std::fs::remove_file(profile_file());
+    let _ = std::fs::remove_file(license_file());
     delete_token()
+}
+
+fn license_file() -> PathBuf {
+    paths::launcher_dir().join("elysium-license.txt")
+}
+
+/// The subscription license for the mod. Fetched fresh when the server answers and kept on disk, so
+/// offline the last one is passed on (the mod itself rejects it once it has expired). Not a secret on its
+/// own: it only proves the subscription until its end date.
+pub async fn game_license(app: &AppHandle, state: &ElysiumState) -> Result<Option<String>> {
+    let Some(token) = load_token()? else {
+        return Ok(None);
+    };
+    match api::game_license(&token).await? {
+        api::LicenseAnswer::Ok(license) => {
+            std::fs::create_dir_all(paths::launcher_dir())?;
+            std::fs::write(license_file(), &license)?;
+            Ok(Some(license))
+        }
+        api::LicenseAnswer::SignedOut => {
+            forget(state)?;
+            let _ = app.emit(SIGNED_OUT_EVENT, ());
+            Err(Error::msg("Сессия аккаунта Elysium завершена — войдите снова"))
+        }
+        // Offline (or the server failed): the license from the last successful check.
+        api::LicenseAnswer::Unavailable(e) => match std::fs::read_to_string(license_file()) {
+            Ok(saved) if !saved.trim().is_empty() => Ok(Some(saved.trim().to_string())),
+            _ => Err(e),
+        },
+    }
 }
 
 /// A one-time ticket for the game, or `None` when the server is unreachable (the game then starts

@@ -136,6 +136,38 @@ pub async fn me(token: &str) -> Result<Authed<Me>> {
     get::<Me>("me", token).await
 }
 
+#[derive(Deserialize)]
+struct GameLicense {
+    license: String,
+}
+
+pub enum LicenseAnswer {
+    Ok(String),
+    SignedOut,
+    /// No connection or a server failure: the last saved license may be used (offline play).
+    Unavailable(Error),
+}
+
+/// Signed license for the mod (ends no later than the subscription, at most 7 days ahead). A refusal
+/// such as "no subscription" (402) is an error, never `Unavailable`, so no saved license replaces it.
+pub async fn game_license(token: &str) -> Result<LicenseAnswer> {
+    let res = match http_client().post(endpoint("game-license")?).bearer_auth(token).json(&serde_json::json!({})).send().await {
+        Ok(res) => res,
+        Err(e) => return Ok(LicenseAnswer::Unavailable(network_error(e))),
+    };
+    let status = res.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return Ok(LicenseAnswer::SignedOut);
+    }
+    if status.is_server_error() {
+        return Ok(LicenseAnswer::Unavailable(api_error(res).await));
+    }
+    if !status.is_success() {
+        return Err(api_error(res).await);
+    }
+    Ok(LicenseAnswer::Ok(res.json::<GameLicense>().await?.license))
+}
+
 /// The current mod release; served only to launcher sessions with an active subscription.
 #[derive(Clone, Deserialize)]
 pub struct ModRelease {
@@ -233,6 +265,9 @@ mod tests {
         // Without a subscription the server gives no mod.
         let no_mod = mod_release(&res.token).await.err().expect("402 without a subscription").to_string();
         assert_eq!(no_mod, "Подписка не активна. Купите или активируйте ключ в кабинете.");
+        // …and no license: a refusal, not "unavailable", so a saved license can't stand in for it.
+        let no_license = game_license(&res.token).await.err().expect("402 without a subscription").to_string();
+        assert_eq!(no_license, "Подписка не активна. Купите или активируйте ключ в кабинете.");
 
         logout(&res.token).await.unwrap();
         assert!(matches!(me(&res.token).await.unwrap(), Authed::SignedOut));
