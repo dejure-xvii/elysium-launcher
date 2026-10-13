@@ -3,7 +3,7 @@ import { ExternalLink, LoaderCircle, LogOut, Play, Puzzle, Settings, SquareTermi
 import { useEffect, useRef, useState } from "react";
 import logo from "../assets/logo.svg";
 import { errorText } from "../api";
-import { useElysium, useElysiumUser } from "../store/elysium";
+import { dateText, planTitle, useElysium, useElysiumSubscription, useElysiumUser } from "../store/elysium";
 import { useLaunch } from "../store/launch";
 import { useNav, type Page } from "../store/nav";
 import { toast } from "../store/toasts";
@@ -53,6 +53,7 @@ export function Sidebar() {
 /** Signed-in Elysium account: avatar with a menu (profile on the site, sign out). */
 function AccountMenu() {
   const user = useElysiumUser();
+  const subscription = useElysiumSubscription();
   const logout = useElysium((s) => s.logout);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -107,9 +108,23 @@ function AccountMenu() {
               <ElysiumAvatar user={user} size={36} />
               <div className="account-menu-name">
                 <strong>{user.username}</strong>
-                <span className="muted small">Аккаунт Elysium</span>
+                <span className="muted small">Аккаунт Elysium{user.uid ? ` · #${user.uid}` : ""}</span>
               </div>
             </div>
+            {subscription && (
+              <dl className="account-menu-sub small">
+                <dt className="muted">Тариф</dt>
+                <dd>{planTitle(subscription.plan)}</dd>
+                <dt className="muted">Действует</dt>
+                <dd>
+                  {subscription.forever
+                    ? "навсегда"
+                    : subscription.expiresAt
+                      ? `до ${dateText(subscription.expiresAt)}`
+                      : "—"}
+                </dd>
+              </dl>
+            )}
             <button className="account-menu-item" onClick={() => (setOpen(false), openElysiumPage("account"))}>
               <ExternalLink size={15} /> Профиль на сайте
             </button>

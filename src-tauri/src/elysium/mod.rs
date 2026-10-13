@@ -15,7 +15,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::error::{Error, Result};
 use crate::paths;
-use api::{Authed, User};
+use api::{Authed, Me, Subscription, User};
 
 const KEYRING_SERVICE: &str = "ElysiumLauncher";
 const KEYRING_USER: &str = "elysium:session";
@@ -35,18 +35,26 @@ struct Cached {
     user: User,
     #[serde(default)]
     last_verified_at: u64,
+    /// Files from 1.4.0 have none and read as no subscription.
+    #[serde(default)]
+    subscription: Subscription,
 }
 
 /// Whether the launcher may be used, as shown by the UI.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Status {
-    /// Checked with the server just now.
+    /// Checked with the server just now, subscription active.
     #[serde(rename_all = "camelCase")]
-    Online { user: User },
-    /// The server is unreachable, the session was checked within `OFFLINE_GRACE`.
+    Online { user: User, subscription: Subscription },
+    /// The server is unreachable, the session was checked within `OFFLINE_GRACE` and the subscription
+    /// has not ended yet.
     #[serde(rename_all = "camelCase")]
-    Offline { user: User, last_verified_at: u64 },
+    Offline { user: User, subscription: Subscription, last_verified_at: u64 },
+    /// Signed in, but no active subscription: the "Подписка не активна" screen.
+    /// `offline`: judged from the cached end date because the server is unreachable.
+    #[serde(rename_all = "camelCase")]
+    Inactive { user: User, subscription: Subscription, offline: bool },
     /// No session (never signed in, signed out or revoked): the sign-in screen.
     SignedOut,
     /// A session exists, but the server has been unreachable for longer than `OFFLINE_GRACE`.
@@ -57,22 +65,36 @@ impl Status {
     pub fn can_play(&self) -> bool {
         matches!(self, Status::Online { .. } | Status::Offline { .. })
     }
+
+    /// Why the game can't start, for the launch command.
+    pub fn play_error(&self) -> &'static str {
+        match self {
+            Status::Inactive { .. } => "Подписка не активна. Купите или активируйте ключ в кабинете.",
+            _ => "Войдите в аккаунт Elysium, чтобы играть",
+        }
+    }
 }
 
 /// Answer of the accounts server to `/me`.
 enum Probe {
-    Ok(User),
+    Ok(Me),
     SignedOut,
     Unavailable,
 }
 
 fn decide(cached: Option<&Cached>, probe: Probe, now: u64) -> Status {
     match probe {
-        Probe::Ok(user) => Status::Online { user },
+        Probe::Ok(Me { user, subscription }) if subscription.active => Status::Online { user, subscription },
+        Probe::Ok(Me { user, subscription }) => Status::Inactive { user, subscription, offline: false },
         Probe::SignedOut => Status::SignedOut,
         Probe::Unavailable => match cached {
             Some(c) if c.last_verified_at > 0 && now.saturating_sub(c.last_verified_at) <= OFFLINE_GRACE => {
-                Status::Offline { user: c.user.clone(), last_verified_at: c.last_verified_at }
+                // The offline grace never outlives the subscription's end date.
+                if c.subscription.valid_at(now) {
+                    Status::Offline { user: c.user.clone(), subscription: c.subscription.clone(), last_verified_at: c.last_verified_at }
+                } else {
+                    Status::Inactive { user: c.user.clone(), subscription: c.subscription.clone(), offline: true }
+                }
             }
             _ => Status::Unreachable,
         },
@@ -100,6 +122,10 @@ impl ElysiumState {
 
     pub fn can_play(&self) -> bool {
         self.status.lock().unwrap().can_play()
+    }
+
+    pub fn play_error(&self) -> &'static str {
+        self.status.lock().unwrap().play_error()
     }
 }
 
@@ -140,9 +166,9 @@ fn load_profile() -> Option<Cached> {
     std::fs::read_to_string(profile_file()).ok().and_then(|s| serde_json::from_str(&s).ok())
 }
 
-/// Saves the profile as just checked with the server.
-fn save_profile(user: &User) -> Result<()> {
-    let cached = Cached { user: user.clone(), last_verified_at: now() };
+/// Saves the profile and the subscription as just checked with the server.
+fn save_profile(user: &User, subscription: &Subscription) -> Result<()> {
+    let cached = Cached { user: user.clone(), last_verified_at: now(), subscription: subscription.clone() };
     std::fs::create_dir_all(paths::launcher_dir())?;
     std::fs::write(profile_file(), serde_json::to_vec_pretty(&cached)?)?;
     Ok(())
@@ -151,7 +177,38 @@ fn save_profile(user: &User) -> Result<()> {
 fn forget(state: &ElysiumState) -> Result<()> {
     state.set(Status::SignedOut);
     let _ = std::fs::remove_file(profile_file());
+    let _ = std::fs::remove_file(license_file());
     delete_token()
+}
+
+fn license_file() -> PathBuf {
+    paths::launcher_dir().join("elysium-license.txt")
+}
+
+/// The subscription license for the mod. Fetched fresh when the server answers and kept on disk, so
+/// offline the last one is passed on (the mod itself rejects it once it has expired). Not a secret on its
+/// own: it only proves the subscription until its end date.
+pub async fn game_license(app: &AppHandle, state: &ElysiumState) -> Result<Option<String>> {
+    let Some(token) = load_token()? else {
+        return Ok(None);
+    };
+    match api::game_license(&token).await? {
+        api::LicenseAnswer::Ok(license) => {
+            std::fs::create_dir_all(paths::launcher_dir())?;
+            std::fs::write(license_file(), &license)?;
+            Ok(Some(license))
+        }
+        api::LicenseAnswer::SignedOut => {
+            forget(state)?;
+            let _ = app.emit(SIGNED_OUT_EVENT, ());
+            Err(Error::msg("Сессия аккаунта Elysium завершена — войдите снова"))
+        }
+        // Offline (or the server failed): the license from the last successful check.
+        api::LicenseAnswer::Unavailable(e) => match std::fs::read_to_string(license_file()) {
+            Ok(saved) if !saved.trim().is_empty() => Ok(Some(saved.trim().to_string())),
+            _ => Err(e),
+        },
+    }
 }
 
 /// A one-time ticket for the game, or `None` when the server is unreachable (the game then starts
@@ -181,9 +238,9 @@ pub async fn elysium_refresh(state: State<'_, ElysiumState>) -> Result<Status> {
         return Ok(state.set(Status::SignedOut));
     };
     let probe = match api::me(&token).await {
-        Ok(Authed::Ok(user)) => {
-            save_profile(&user)?;
-            Probe::Ok(user)
+        Ok(Authed::Ok(me)) => {
+            save_profile(&me.user, &me.subscription)?;
+            Probe::Ok(me)
         }
         Ok(Authed::SignedOut) => {
             forget(&state)?;
@@ -202,8 +259,9 @@ pub async fn elysium_login(state: State<'_, ElysiumState>, login: String, passwo
     }
     let res = api::login(login, &password).await?;
     store_token(&res.token)?;
-    save_profile(&res.user)?;
-    Ok(state.set(Status::Online { user: res.user }))
+    save_profile(&res.user, &res.subscription)?;
+    let me = Me { user: res.user, subscription: res.subscription };
+    Ok(state.set(decide(None, Probe::Ok(me), now())))
 }
 
 /// Ends the session on the server (best effort) and removes it from this computer.
@@ -222,6 +280,7 @@ pub fn elysium_open_page(app: AppHandle, page: String) -> Result<()> {
         "register" => "/register",
         "forgot" => "/forgot",
         "account" => "/account",
+        "buy" => "/buy",
         "privacy" => "/privacy",
         _ => return Err(Error::msg("Неизвестная страница")),
     };
@@ -238,24 +297,63 @@ mod tests {
     const NOW: u64 = 1_800_000_000;
 
     fn user() -> User {
-        User { id: "u1".into(), username: "dejure".into(), email: None, email_verified: false }
+        User { id: "u1".into(), username: "dejure".into(), email: None, email_verified: false, uid: Some(1) }
+    }
+
+    /// Active subscription ending `days` from NOW.
+    fn sub_days(days: u64) -> Subscription {
+        Subscription { active: true, plan: Some("d30".into()), expires_at: Some((NOW + days * DAY) * 1000), ..Default::default() }
+    }
+
+    fn forever() -> Subscription {
+        Subscription { active: true, forever: true, plan: Some("forever".into()), ..Default::default() }
     }
 
     fn checked(ago: u64) -> Cached {
-        Cached { user: user(), last_verified_at: NOW - ago }
+        Cached { user: user(), last_verified_at: NOW - ago, subscription: forever() }
+    }
+
+    fn me(subscription: Subscription) -> Probe {
+        Probe::Ok(Me { user: user(), subscription })
     }
 
     #[test]
     fn server_answer_wins() {
-        assert_eq!(decide(None, Probe::Ok(user()), NOW), Status::Online { user: user() });
+        assert_eq!(decide(None, me(forever()), NOW), Status::Online { user: user(), subscription: forever() });
         // 401: the sign-in screen even with a fresh cache.
         assert_eq!(decide(Some(&checked(60)), Probe::SignedOut, NOW), Status::SignedOut);
     }
 
     #[test]
+    fn no_subscription_cannot_play() {
+        let none = Subscription::default();
+        let s = decide(None, me(none.clone()), NOW);
+        assert_eq!(s, Status::Inactive { user: user(), subscription: none, offline: false });
+        assert!(!s.can_play());
+        assert_eq!(s.play_error(), "Подписка не активна. Купите или активируйте ключ в кабинете.");
+        // Ended yesterday: the server says inactive, the date is kept for the screen.
+        let ended = Subscription { active: false, ..sub_days(0) };
+        assert!(!decide(None, me(ended), NOW).can_play());
+    }
+
+    #[test]
+    fn offline_grace_ends_with_the_subscription() {
+        // Checked 2 days ago, 3 days left back then → 1 day left now: playable.
+        let c = Cached { subscription: sub_days(1), ..checked(2 * DAY) };
+        assert!(decide(Some(&c), Probe::Unavailable, NOW).can_play());
+        // Ended an hour ago, though the 7-day grace would still run: not playable.
+        let c = Cached { subscription: Subscription { expires_at: Some((NOW - 3600) * 1000), ..sub_days(0) }, ..checked(DAY) };
+        let s = decide(Some(&c), Probe::Unavailable, NOW);
+        assert!(matches!(s, Status::Inactive { offline: true, .. }), "{s:?}");
+        // A profile cached by 1.4.0 has no subscription at all.
+        let old: Cached = serde_json::from_str(r#"{"id":"u1","username":"dejure","emailVerified":false,"lastVerifiedAt":1799999000}"#).unwrap();
+        assert!(!decide(Some(&old), Probe::Unavailable, NOW).can_play());
+    }
+
+    #[test]
     fn offline_for_seven_days() {
         let s = decide(Some(&checked(6 * DAY)), Probe::Unavailable, NOW);
-        assert_eq!(s, Status::Offline { user: user(), last_verified_at: NOW - 6 * DAY });
+        assert_eq!(s, Status::Offline { user: user(), subscription: forever(), last_verified_at: NOW - 6 * DAY });
         assert!(s.can_play());
         assert!(decide(Some(&checked(OFFLINE_GRACE)), Probe::Unavailable, NOW).can_play());
         let late = decide(Some(&checked(OFFLINE_GRACE + 1)), Probe::Unavailable, NOW);
@@ -274,7 +372,7 @@ mod tests {
 
     #[test]
     fn status_json_for_the_ui() {
-        let json = serde_json::to_value(Status::Offline { user: user(), last_verified_at: 5 }).unwrap();
+        let json = serde_json::to_value(Status::Offline { user: user(), subscription: forever(), last_verified_at: 5 }).unwrap();
         assert_eq!(json["state"], "offline");
         assert_eq!(json["lastVerifiedAt"], 5);
         assert_eq!(json["user"]["username"], "dejure");

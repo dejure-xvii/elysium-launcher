@@ -5,9 +5,9 @@
 
 ## Возможности
 - Вход через Microsoft (Device Code → Xbox Live → XSTS → Minecraft) и офлайн-аккаунты, несколько аккаунтов, головы скинов.
-- Сам скачивает Minecraft 26.2, библиотеки, ассеты, нативы, Fabric Loader 0.19.5, Fabric API и последнюю версию мода из GitHub Releases.
+- Сам скачивает Minecraft 26.2, библиотеки, ассеты, нативы, Fabric Loader 0.19.5, Fabric API и последнюю версию мода с сервера Elysium (только при активной подписке).
 - Ставит моды по умолчанию (Sodium, Iris, Entity Culling, ImmediatelyFast, Mod Menu, Punchy!) по списку
-  [`default-mods.json`](https://github.com/dejure-xvii/elysium-visuals/blob/main/default-mods.json) с Modrinth
+  `default-mods.json` (отдаёт сервер Elysium) с Modrinth
   (sha512, зависимости подтягиваются сами). Вкладка «Моды»: необязательные можно выключить, свои моды лаунчер не трогает.
 - Нет Java 25 → скачивает портативную Temurin 25 JRE в `%APPDATA%\ElysiumLauncher\runtime`.
 - Проверка по SHA-1, докачивается только недостающее; работает и офлайн, если файлы уже скачаны.
@@ -61,8 +61,8 @@ cargo test e2e -- --ignored --nocapture     # полная установка в
 ```
 
 ## Скачать
-Установщик — в [последнем релизе](https://github.com/dejure-xvii/elysium-launcher/releases/latest):
-`Elysium.Launcher_<версия>_x64-setup.exe`.
+Установщик скачивается в личном кабинете на сайте Elysium — кнопка видна при активной подписке.
+GitHub-релизы остаются только для автообновления установленных лаунчеров.
 
 ## Сборка установщика .exe локально
 Обновления подписываются, поэтому для сборки нужен ключ подписи:
@@ -92,14 +92,13 @@ Microsoft требует, чтобы у каждого лаунчера был �
 Пока ID не задан, кнопка «Войти через Microsoft» неактивна, офлайн-режим работает.
 
 ## Обновления
-**Мод.** При каждом запуске игры лаунчер смотрит последний релиз
-[elysium-visuals](https://github.com/dejure-xvii/elysium-visuals/releases) (`MOD_REPO` в
-`config.rs`) и, если версия новее, скачивает `.jar` (кроме `*-sources.jar`) в
-`%APPDATA%\ElysiumLauncher\mod\`. Без интернета используется уже скачанная копия.
-Чтобы выпустить новую версию мода, создайте в его репозитории релиз с тегом `vX.Y.Z`
-(совпадает с `version` в `fabric.mod.json`) и приложите jar.
+**Мод.** При каждом запуске игры лаунчер спрашивает у сервера Elysium последнюю версию
+(`/api/v1/releases/mod`: сессия лаунчера + активная подписка) и, если она новее, скачивает jar
+(`/api/v1/download/mod`, проверка SHA-256) в `%APPDATA%\ElysiumLauncher\mod\`. Без интернета используется
+уже скачанная копия. Файлы лежат в приватном бакете R2 `elysium-releases`; новую версию туда кладёт
+workflow релиза мода (тег `vX.Y.Z` в его репозитории).
 
-**Моды по умолчанию.** Список — `default-mods.json` в репозитории мода (`DEFAULT_MODS_URL` в `config.rs`):
+**Моды по умолчанию.** Список — `default-mods.json` из репозитория мода, его отдаёт сервер (`DEFAULT_MODS_PATH` в `config.rs`):
 ID проекта и версии Modrinth, флаг `required`. Лаунчер скачивает файлы только через Modrinth API,
 проверяет sha512, ставит required-зависимости (кроме Fabric API — он идёт с Maven) и запоминает
 свои файлы в `<папка игры>/.elysium-mods.json`: при смене версии в списке или выключении мода

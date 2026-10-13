@@ -35,6 +35,8 @@ pub struct ExitEvent {
 /// arguments to latest.log and crash reports, but never the environment.
 pub const SOCIAL_TICKET_ENV: &str = "ELYSIUM_SOCIAL_TICKET";
 pub const SOCIAL_URL_ENV: &str = "ELYSIUM_SOCIAL_URL";
+/// Subscription license for the mod (signed by the Elysium server, checked by the mod offline).
+pub const LICENSE_ENV: &str = "ELYSIUM_LICENSE";
 
 /// Hides tokens in a game log line. Short values (an offline account's token is "0") are not secrets.
 fn redact(line: String, secrets: &[String]) -> String {
@@ -85,7 +87,7 @@ pub async fn spawn(
         .creation_flags(CREATE_NO_WINDOW)
         .kill_on_drop(false);
     // Never pass on values the launcher itself was started with.
-    cmd.env_remove(SOCIAL_TICKET_ENV).env_remove(SOCIAL_URL_ENV);
+    cmd.env_remove(SOCIAL_TICKET_ENV).env_remove(SOCIAL_URL_ENV).env_remove(LICENSE_ENV);
     for (key, value) in env {
         cmd.env(key, value);
     }

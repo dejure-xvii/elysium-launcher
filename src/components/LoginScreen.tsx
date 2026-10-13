@@ -108,8 +108,8 @@ export function LoginScreen() {
         </button>
         <div className="login-register">
           <p className="muted small">
-            Нет аккаунта? Зарегистрируйтесь на сайте — это бесплатно и займёт минуту. После регистрации вернитесь сюда
-            и войдите.
+            Нет аккаунта? Зарегистрируйтесь на сайте — это займёт минуту. Для игры нужна подписка: купите её и
+            активируйте ключ в кабинете, затем вернитесь сюда и войдите.
           </p>
           <button type="button" className="btn btn-ghost" onClick={() => openElysiumPage("register")}>
             <UserPlus size={18} /> Зарегистрироваться <ExternalLink size={14} />

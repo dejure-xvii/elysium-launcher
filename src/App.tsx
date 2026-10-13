@@ -5,6 +5,7 @@ import { api, errorText, events } from "./api";
 import { AnimatedBackground } from "./components/AnimatedBackground";
 import { CrashDialog } from "./components/CrashDialog";
 import { LoginScreen } from "./components/LoginScreen";
+import { SubscriptionScreen } from "./components/SubscriptionScreen";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
@@ -70,6 +71,8 @@ export default function App() {
         </div>
       ) : elysium.state === "signedOut" || elysium.state === "unreachable" ? (
         <LoginScreen />
+      ) : elysium.state === "inactive" ? (
+        <SubscriptionScreen />
       ) : (
         <div className="layout">
           <Sidebar />

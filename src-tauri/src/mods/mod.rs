@@ -193,7 +193,7 @@ pub async fn load_list(client: &reqwest::Client) -> Result<ModList> {
     }
     let fresh = async {
         let text = client
-            .get(config::DEFAULT_MODS_URL)
+            .get(crate::elysium::api::site_url(config::DEFAULT_MODS_PATH))
             .send()
             .await?
             .error_for_status()?

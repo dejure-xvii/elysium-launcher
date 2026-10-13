@@ -38,6 +38,24 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Elysium Launcher v__VERSION__
-          releaseBody: Скачайте `Elysium.Launcher_*_x64-setup.exe` и запустите установщик.
+          releaseBody: Обновление для установленных лаунчеров. Установщик скачивается в личном кабинете на сайте Elysium (нужна активная подписка).
           releaseDraft: false
           prerelease: false
+
+      # The installer is also uploaded to the private R2 bucket: the site gives it out only in the
+      # cabinet, to accounts with an active subscription (elysium-site/auth/src/releases.js). The GitHub
+      # release above stays for the auto-updater of installed launchers (latest.json).
+      # Secrets: CLOUDFLARE_API_TOKEN ("Workers R2 Storage: Edit"), CLOUDFLARE_ACCOUNT_ID.
+      - name: Upload installer to R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          exe=$(ls src-tauri/target/release/bundle/nsis/*_x64-setup.exe | head -1)
+          name=$(basename "$exe")
+          npx --yes wrangler@4.149.0 r2 object put "elysium-releases/launcher/$name" --remote --file "$exe" --content-type application/octet-stream
+          node -e "process.stdout.write(JSON.stringify({version: process.argv[1], file: 'launcher/' + process.argv[2]}))" "$version" "$name" > latest-launcher.json
+          npx --yes wrangler@4.149.0 r2 object put elysium-releases/launcher/latest.json --remote --file latest-launcher.json --content-type application/json
